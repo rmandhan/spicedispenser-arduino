@@ -16,16 +16,17 @@
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 
-#define SERVOMIN  150 // this is the 'minimum' pulse length count (out of 4096)
-#define SERVOMAX  600 // this is the 'maximum' pulse length count (out of 4096)
+//#define SERVOMIN  150 // this is the 'minimum' pulse length count (out of 4096)
+//#define SERVOMAX  600 // this is the 'maximum' pulse length count (out of 4096)
+//
+//enum ProgramState {
+//  idle,
+//  waiting,
+//  dispensing
+//};
+//
+//ProgramState state = idle;
 
-enum ProgramState {
-  idle,
-  waiting,
-  dispensing
-};
-
-ProgramState state = idle;
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 void setup() {
@@ -37,7 +38,7 @@ void setup() {
   // initialize the led pin
   pinMode(13, OUTPUT);
   pwm.begin();
-  pwm.setPWMFreq(50);  // Analog servos run at ~60 Hz updates
+  pwm.setPWMFreq(60);  // Analog servos run at ~60 Hz updates
   yield(); // Not sure what this is
 }
 
@@ -60,6 +61,14 @@ void setup() {
 //    }
 //  }
 //}
+
+//void loop() {
+//  while (Serial.available()) {
+//    int data = Serial.read();      // Read the incoming data and store it into variable data
+//    Serial.print(data);        // Print Value inside data in Serial monitor
+//    Serial.print("\n");        // New line 
+//}
+
 
 void loop() {
   while (Serial.available()) {
