@@ -5,19 +5,14 @@
 #include <Wire.h>
 
 // Define Servo constants
-#define SMALL_PULSE_WIDTH     1024
-#define CENTER_PULSE_WIDTH    2048
-#define BIG_PULSE_WIDTH       3072
+#define MIN_PULSE_WIDTH       650
+#define MAX_PULSE_WIDTH       2350
+#define DEFAULT_PULSE_WIDTH   1500
 #define FREQUENCY             50
-#define SERVO_DELAY           25
-
-// Define Servo PWN Pins
-#define JAR1_PIN 0
-#define JAR2_PIN 1
-#define JAR3_PIN 2
-#define JAR4_PIN 3
-#define JAR5_PIN 4
-#define JAR6_PIN 5
+#define SERVO_INTERVAL        1500
+#define SERVO_SMALL_ANGLE     15
+#define SERVO_CENTER_ANGLE    75
+#define SERVO_BIG_ANGLE       165
 
 // JSON data type values
 #define TYPE_LEDS "leds"
@@ -38,6 +33,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // Define PWM controller
 SoftwareSerial bluetoothSerial(10, 11);   // Define RX and TX ports instead of using default 0, 1 ports
 
+// Serial data
 byte deviceState = 0;   // 0 = idle, 1 = dispensing, 2 = bad state
 const byte numChars = 255;
 char receivedChars[numChars];
@@ -48,6 +44,9 @@ int smalls[NUM_JARS];
 int bigs[NUM_JARS];
 int done_dispensing[NUM_JARS];
 int servo_state[NUM_JARS];    // -1 = small, 0 = center, 1 = big
+
+// Servo timing
+long prevMillis = 0;
 
 void setup() {
   // TODO: Load data from EEPROM
@@ -194,6 +193,14 @@ void configureSpiceNames() {
 }
 
 void dispenseSpices() {
+  // Make sure enough time has passed before moving the servo again
+  unsigned long currentMillis = millis();
+  if (currentMillis - prevMillis > SERVO_INTERVAL) {
+    prevMillis = currentMillis;
+  } else {
+    return;
+  }
+  
   boolean allDone = true;
   // Do all the bigs first
   for (int i = 0; i < NUM_JARS; i++) {
@@ -202,6 +209,7 @@ void dispenseSpices() {
       allDone = false;
     }
   }
+  
   if (allDone == true) {
     Serial.println("Finished dispensing all spices");
     deviceState = 0;
@@ -212,7 +220,7 @@ void dispenseSpices() {
 void dispenseSpiceForJar(int jar) {
   if (done_dispensing[jar] == false) {
     if (servo_state[jar] != 0) {
-      // TODO: Set PWM to center position
+      pwm.setPWM(jar, 0, pulseWidth(SERVO_CENTER_ANGLE));
       servo_state[jar] = 0;
       // We might be done, check and mark as done
       if (smalls[jar] == 0 && bigs[jar] == 0) {
@@ -222,13 +230,13 @@ void dispenseSpiceForJar(int jar) {
       Serial.println(jar);
     }
     else if (smalls[jar] > 0) {
-      // TODO: Set PWM to small position
+      pwm.setPWM(jar, 0, pulseWidth(SERVO_SMALL_ANGLE));
       smalls[jar] = smalls[jar] - 1;
       servo_state[jar] = -1;
       Serial.print("Dispenseing small for jar ");
       Serial.println(jar);
     } else if (bigs[jar] > 0) {
-      // TODO: Set PWM to big position
+      pwm.setPWM(jar, 0, pulseWidth(SERVO_BIG_ANGLE));
       bigs[jar] = bigs[jar] - 1;
       servo_state[jar] = 1;
       Serial.print("Dispenseing big for jar ");
@@ -241,6 +249,14 @@ void dispenseSpiceForJar(int jar) {
   }
 }
 
+// Converts angle to pulse width
+int pulseWidth(int angle) {
+  int pulse_wide, analog_value;
+  pulse_wide  = map(angle, 0, 180, MIN_PULSE_WIDTH, MAX_PULSE_WIDTH);
+  analog_value = int(float(pulse_wide) / 1000000 * FREQUENCY * 4096);
+  return analog_value;
+}
+
 /* --------------------------------------------------------------- */
 /* Code that we might need later... */
 /* --------------------------------------------------------------- */
@@ -249,6 +265,9 @@ void dispenseSpiceForJar(int jar) {
 
 // setPWM Arguments
 // channel: The channel that should be updated with the new values (0..15)
+// on: The tick (between 0..4095) when the signal should transition from low to high
+// off:the tick (between 0..4095) when the signal should transition from high to low
+// pwm.setPWM(15, 1024, 3072)
 
 /* JSON Parsing */
 
