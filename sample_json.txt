@@ -1,0 +1,4 @@
+
+{"type":"leds","colours":[256,0,123,4,123,88],"brightness":[2,5,10,10,7,8]}
+{"type":"names","names":["Red Pepper","Black Pepper","Salt","Turmeric Powder","Curry Powder","Cinnamon"]}
+{"type":"dispense","small":[1,0,1,0,1,0],"big":[0,1,0,4,0,2]}

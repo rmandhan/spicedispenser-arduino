@@ -33,13 +33,25 @@
 // Define sending data type value
 #define STATE "state"
 
-#define NUM_JARS 3;
+#define NUM_JARS 6
 
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
-// Define RX and TX ports instead of using default 0, 1 ports
-SoftwareSerial bluetoothSerial(10, 11);
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // Define PWM controller
+SoftwareSerial bluetoothSerial(10, 11);   // Define RX and TX ports instead of using default 0, 1 ports
+
+byte deviceState = 0;   // 0 = idle, 1 = dispensing, 2 = bad state
+const byte numChars = 255;
+char receivedChars[numChars];
+boolean newData = false;
+
+// Dispense data
+int smalls[NUM_JARS];
+int bigs[NUM_JARS];
+int done_dispensing[NUM_JARS];
+int servo_state[NUM_JARS];    // -1 = small, 0 = center, 1 = big
 
 void setup() {
+  // TODO: Load data from EEPROM
+  // TODO: Set LEDs and spice names on display
   Serial.begin(9600);
   bluetoothSerial.begin(9600);
   while (!Serial & !bluetoothSerial) {
@@ -51,48 +63,182 @@ void setup() {
 }
 
 void loop() {
+
+  if (deviceState == 1) {
+    dispenseSpices();
+  }
+  
   if (Serial.available()) {
     char x = Serial.read();
     bluetoothSerial.print(x);
   }
 
-  String content;
+  recvWithStartEndMarkers();
 
-  // If something comes up on port 10, then...
-  while(bluetoothSerial.available()) {
-    content = bluetoothSerial.readString();
-  }
-
-  if (content.length() == 0) {
+  if (!newData) {
     return;
   }
+  newData = false;
 
   // Whatever is received, print it to Arduino's serial monitor
-  Serial.print(content);
+  Serial.println(receivedChars);
 
-  // If JSON, parse it
-  if (content.startsWith("{")) {
+  // If JSON, parse it (if we are not currently dispensing)
+  if (receivedChars[0] == '{' && deviceState != 1) {
     StaticJsonBuffer<512> jsonBuffer;
     
-    JsonObject& root = jsonBuffer.parseObject(content);
+    JsonObject& root = jsonBuffer.parseObject(receivedChars);
     if (!root.success()) {
       Serial.println("JSON Parsing Failed");
       return;
     }
     
-    const char* sensor = root["sensor"];
-    long time = root["time"];
-    double latitude  = root["data"][0];
-    double longitude = root["data"][1];
-  
-    Serial.println(sensor);
-    Serial.println(time);
-    Serial.println(latitude, 6);
-    Serial.println(longitude, 6);
-  } else {
-    Serial.println("Not JSON");
+    String type = root["type"];
+    
+    if (type == TYPE_LEDS) {
+      JsonArray& colours = root[COLOURS_KEY];
+      JsonArray& brightness = root[BRIGHTNESS_KEY];
+      for (int i = 0; i < NUM_JARS; i++) {
+        int colour = colours[i];
+        int bness = brightness[i];
+        Serial.print("LED ");
+        Serial.print(i);
+        Serial.print(": ");
+        Serial.print(colour);
+        Serial.print(", ");
+        Serial.println(bness);
+      }
+      configureLEDS();
+    } else if (type == TYPE_NAMES) {
+      JsonArray& names = root[NAMES_KEY];
+      for (int i = 0; i < NUM_JARS; i++) {
+        String name = names[i];
+        Serial.print("JAR ");
+        Serial.print(i);
+        Serial.print(": ");
+        Serial.println(name);
+      }
+      configureSpiceNames();
+    } else if (type == TYPE_DISPENSE) {
+      JsonArray& smallsData = root[SMALL_KEY];
+      JsonArray& bigsData = root[BIG_KEY];
+      for (int i = 0; i < NUM_JARS; i++) {
+        smalls[i] = smallsData[i];
+        bigs[i] = bigsData[i];
+        int small = smalls[i];
+        int big = bigs[i];
+        Serial.print("JAR ");
+        Serial.print(i);
+        Serial.print(": ");
+        Serial.print(small);
+        Serial.print(", ");
+        Serial.println(big);
+      }
+      deviceState = 1;
+    } else {
+      Serial.println("JSON data type not defined");
+    }
+  } 
+  // NOT JSON
+  else {
+    if (strcmp(receivedChars, "state") == 0) {
+      bluetoothSerial.print(deviceState);
+    } else if (strcmp(receivedChars, "reset_oG9MThf4fD") == 0) {
+      // TODO: Stop everything, reset variables, and motor positions
+    }
   }
 
+}
+
+// Source: http://forum.arduino.cc/index.php?topic=396450.0
+void recvWithStartEndMarkers() {
+    static boolean recvInProgress = false;
+    static byte ndx = 0;
+    char startMarker = 2;
+    char endMarker = 3;
+    char rc;
+ 
+    while (bluetoothSerial.available() > 0 && newData == false) {
+        rc = bluetoothSerial.read();
+
+        if (recvInProgress == true) {
+            if (rc != endMarker) {
+                receivedChars[ndx] = rc;
+                ndx++;
+                if (ndx >= numChars) {
+                    ndx = numChars - 1;
+                }
+            }
+            else {
+                receivedChars[ndx] = '\0'; // terminate the string
+                recvInProgress = false;
+                ndx = 0;
+                newData = true;
+            }
+        }
+
+        else if (rc == startMarker) {
+            recvInProgress = true;
+        }
+    }
+}
+
+void configureLEDS() {
+  // TODO: Save to EEPROM
+  // TODO: Set LEDS
+}
+
+void configureSpiceNames() {
+  // TODO: Save to EEPROM
+  // TODO: Set names on display
+}
+
+void dispenseSpices() {
+  boolean allDone = true;
+  // Do all the bigs first
+  for (int i = 0; i < NUM_JARS; i++) {
+    dispenseSpiceForJar(i);
+    if (done_dispensing[i] == false) {
+      allDone = false;
+    }
+  }
+  if (allDone == true) {
+    Serial.println("Finished dispensing all spices");
+    deviceState = 0;
+    memset(done_dispensing, 0, sizeof(done_dispensing));
+  }
+}
+
+void dispenseSpiceForJar(int jar) {
+  if (done_dispensing[jar] == false) {
+    if (servo_state[jar] != 0) {
+      // TODO: Set PWM to center position
+      servo_state[jar] = 0;
+      // We might be done, check and mark as done
+      if (smalls[jar] == 0 && bigs[jar] == 0) {
+        done_dispensing[jar] = true;
+      }
+      Serial.print("Centering servo for jar ");
+      Serial.println(jar);
+    }
+    else if (smalls[jar] > 0) {
+      // TODO: Set PWM to small position
+      smalls[jar] = smalls[jar] - 1;
+      servo_state[jar] = -1;
+      Serial.print("Dispenseing small for jar ");
+      Serial.println(jar);
+    } else if (bigs[jar] > 0) {
+      // TODO: Set PWM to big position
+      bigs[jar] = bigs[jar] - 1;
+      servo_state[jar] = 1;
+      Serial.print("Dispenseing big for jar ");
+      Serial.println(jar);
+    } else {
+      Serial.print("Jar ");
+      Serial.print(jar);
+      Serial.println(" is in bad state");
+    }
+  }
 }
 
 /* --------------------------------------------------------------- */
@@ -103,33 +249,6 @@ void loop() {
 
 // setPWM Arguments
 // channel: The channel that should be updated with the new values (0..15)
-// on: The tick (between 0..4095) when the signal should transition from low to high
-// off:the tick (between 0..4095) when the signal should transition from high to low
-// pwm.setPWM(0, 1024, 3072);
-
-/* Reading 1 char at a time */
-
-//  if (bluetoothSerial.available()) {
-//    char x = bluetoothSerial.read();
-//    Serial.print(x);
-//  }
-
-/* Reading continously */
-
-//  String content = "";
-//  char character;
-//
-//  // If something comes up on port 10, then...
-//  while(mySerial.available()) {
-//      character = mySerial.read();
-//      content.concat(character);
-//      delay(10);
-//  }
-//  
-//  if (content != "") {
-//    // Whatever is received, print it to Arduino's serial monitor
-//    Serial.println(content);
-//  }
 
 /* JSON Parsing */
 
