@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "name": "Mac",
+            "includePath": [
+                "/Users/rakesh/Library/Arduino15/packages/arduino/hardware/avr/1.6.20/cores/arduino",
+                "/Users/rakesh/Developer/Arduino/libraries/EEPROMEx"
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": false,
+                "path": [
+                    "/Users/rakesh/Library/Arduino15/packages/arduino/hardware/avr/1.6.20/cores/arduino",
+                    "/Users/rakesh/Developer/Arduino/libraries/EEPROMEx"
+                ]
+            },
+            "intelliSenseMode": "clang-x64",
+            "macFrameworkPath": [
+                "/System/Library/Frameworks",
+                "/Library/Frameworks"
+            ]
+        }
+    ],
+    "version": 3
+}

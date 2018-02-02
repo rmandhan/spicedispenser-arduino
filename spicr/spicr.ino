@@ -1,6 +1,6 @@
-
 #include <Adafruit_PWMServoDriver.h>
 #include <ArduinoJson.h>
+#include <EEPROM.h>
 #include <SoftwareSerial.h>
 #include <Wire.h>
 
@@ -19,8 +19,10 @@
 #define TYPE_NAMES "names"
 #define TYPE_DISPENSE "dispense"
 // JSON keys
-#define COLOURS_KEY "colours"
-#define BRIGHTNESS_KEY "brightness"
+#define RED_KEY "reds"
+#define GREEN_KEY "greens"
+#define BLUE_KEY "blues"
+#define WHITE_KEY "whites"
 #define NAMES_KEY "names"
 #define SMALL_KEY "small"
 #define BIG_KEY "big"
@@ -28,13 +30,23 @@
 // Define sending data type value
 #define STATE "state"
 
-#define NUM_JARS 6
+#define NUM_JARS 6    // MUST BE LESS THAN MAX_JARS
+#define MAX_JARS 6    // MAX JARS = 6 (EEPROM is hardcoded)
+
+// EEPROM
+#define LED_ARE_SET_ADDR 0    // 1st bit represents if LED values exist
+#define NAMES_ARE_SET_ADDR 1  // 2nd bit represents if Names exist, default is Spice 1, Spice 2... etc
+#define LED_START_ADDR 2      // Red1, Green1, Blue1, White1 ... Red6, Green6, Blue6, White6  = 6*4 = 24 bytes
+#define LED_ADDR_OFFSET 4     // Every 4 bytes are colours for the next jar
+#define NAMES_START_ADDR 26   // length1, name1, length2, name2 ... length6, name6 = (1*6) + (24*6) = 150 bytes - length 0 means default name
+#define NAMES_ADDR_OFFSET 25  // Every 25 bytes is a new name
+
 
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // Define PWM controller
 SoftwareSerial bluetoothSerial(10, 11);   // Define RX and TX ports instead of using default 0, 1 ports
 
 // Serial data
-byte deviceState = 0;   // 0 = idle, 1 = dispensing, 2 = bad state
+byte deviceState = 0;   // 0 = idle, 1 = dispensing, 2 = jar disconnect,  3 = bad state
 const byte numChars = 255;
 char receivedChars[numChars];
 boolean newData = false;
@@ -59,6 +71,23 @@ void setup() {
   pwm.begin();
   pwm.setPWMFreq(FREQUENCY);
   Serial.println("<Arduino is ready>");
+  // TEMP
+  byte lightsSet = EEPROM.read(LED_ARE_SET_ADDR);
+  if (lightsSet == 1) {
+    Serial.println("LEDs were set previously");
+    // Read the colours and set them
+    configureLightsOnBoot();
+  } else {
+    Serial.println("LEDS have never been set");
+  }
+  byte namesSet = EEPROM.read(NAMES_ARE_SET_ADDR);
+  if (namesSet == 1) {
+    Serial.println("Spice names were set previously");
+    // Read the names and set them on the screen
+    configureSpiceNamesOnBoot();
+  } else {
+    Serial.println("Spice names have never been set");
+  }
 }
 
 void loop() {
@@ -84,7 +113,7 @@ void loop() {
 
   // If JSON, parse it (if we are not currently dispensing)
   if (receivedChars[0] == '{' && deviceState != 1) {
-    StaticJsonBuffer<512> jsonBuffer;
+    DynamicJsonBuffer jsonBuffer(300);
     
     JsonObject& root = jsonBuffer.parseObject(receivedChars);
     if (!root.success()) {
@@ -95,29 +124,39 @@ void loop() {
     String type = root["type"];
     
     if (type == TYPE_LEDS) {
-      JsonArray& colours = root[COLOURS_KEY];
-      JsonArray& brightness = root[BRIGHTNESS_KEY];
+      JsonArray& reds = root[RED_KEY];
+      JsonArray& greens = root[GREEN_KEY];
+      JsonArray& blues = root[BLUE_KEY];
+      JsonArray& whites = root[WHITE_KEY];
       for (int i = 0; i < NUM_JARS; i++) {
-        int colour = colours[i];
-        int bness = brightness[i];
+        int red = reds[i];
+        int green = greens[i];
+        int blue = blues[i];
+        int white = whites[i];
         Serial.print("LED ");
         Serial.print(i);
         Serial.print(": ");
-        Serial.print(colour);
+        Serial.print(red);
         Serial.print(", ");
-        Serial.println(bness);
+        Serial.print(green);
+        Serial.print(", ");
+        Serial.print(blue);
+        Serial.print(", ");
+        Serial.println(white);
+       configureLights(i, red, green, blue, white);
       }
-      configureLEDS();
+      lightsWereSet();
     } else if (type == TYPE_NAMES) {
-      JsonArray& names = root[NAMES_KEY];
+      JsonArray& spiceNames = root[NAMES_KEY];
       for (int i = 0; i < NUM_JARS; i++) {
-        String name = names[i];
+        char *spiceName = spiceNames[i];    // For some reason, String doesn't work
         Serial.print("JAR ");
         Serial.print(i);
         Serial.print(": ");
-        Serial.println(name);
+        Serial.println(spiceName);
+        configureSpiceName(i, spiceName);
       }
-      configureSpiceNames();
+      namesWereSet();
     } else if (type == TYPE_DISPENSE) {
       JsonArray& smallsData = root[SMALL_KEY];
       JsonArray& bigsData = root[BIG_KEY];
@@ -135,7 +174,9 @@ void loop() {
       }
       deviceState = 1;
     } else {
-      Serial.println("JSON data type not defined");
+      Serial.print("JSON data type '");
+      Serial.print(type);
+      Serial.println("' not defined");
     }
   } 
   // NOT JSON
@@ -143,7 +184,8 @@ void loop() {
     if (strcmp(receivedChars, "state") == 0) {
       bluetoothSerial.print(deviceState);
     } else if (strcmp(receivedChars, "reset_oG9MThf4fD") == 0) {
-      // TODO: Stop everything, reset variables, and motor positions
+      // TODO: Stop everything, reset variables, EEPROM (by reseting first 2 bits and len bits), and motor positions
+      bluetoothSerial.print("reseting dispenser");
     }
   }
 
@@ -182,13 +224,80 @@ void recvWithStartEndMarkers() {
     }
 }
 
-void configureLEDS() {
-  // TODO: Save to EEPROM
-  // TODO: Set LEDS
+void lightsWereSet() {
+  EEPROM.update(LED_ARE_SET_ADDR, 1);
 }
 
-void configureSpiceNames() {
-  // TODO: Save to EEPROM
+void namesWereSet() {
+  EEPROM.update(NAMES_ARE_SET_ADDR, 1);
+}
+
+void configureLights(int jar, int red, int green, int blue, int white) {
+ // Save to EEPROM
+ int offset = LED_START_ADDR + LED_ADDR_OFFSET*jar;
+ EEPROM.update(offset, red);
+ EEPROM.update(offset+1, green);
+ EEPROM.update(offset+2, blue);
+ EEPROM.update(offset+3, white);
+ // TODO: Set LEDS
+}
+
+void configureLightsOnBoot() {
+  // Read the colours from EEPROM
+  for (int i = 0; i < NUM_JARS; i++) {
+    int offset = LED_START_ADDR + LED_ADDR_OFFSET*i;
+    int red = EEPROM.read(offset);
+    int green = EEPROM.read(offset+1);
+    int blue = EEPROM.read(offset+2);
+    int white = EEPROM.read(offset+3);
+    Serial.print("LED ");
+    Serial.print(i);
+    Serial.print(": ");
+    Serial.print(red);
+    Serial.print(", ");
+    Serial.print(green);
+    Serial.print(", ");
+    Serial.print(blue);
+    Serial.print(", ");
+    Serial.println(white);
+  }
+  // TODO: Set the LEDs
+}
+
+void configureSpiceName(int jar, char *name) {
+  Serial.println("A1");
+  // Save to EEPROM
+  int len = strlen(name);
+  // Assumption: it is app's job to make sure it's not null
+  int offset = NAMES_START_ADDR + NAMES_ADDR_OFFSET*jar;
+  EEPROM.update(offset, len);
+  Serial.println(len);
+  // Update each char
+  for (int i = 0; i < len; i++) {
+    EEPROM.update(offset + i + 1, name[i]);
+    Serial.print(offset);
+    Serial.print(", ");
+    Serial.println(name[i]);
+  }
+  Serial.println("A2");
+  // TODO: Set names on display
+}
+
+void configureSpiceNamesOnBoot() {
+  // Read the names from EEPROM
+  for (int i = 0; i < NUM_JARS; i++) {
+    int offset = NAMES_START_ADDR + NAMES_ADDR_OFFSET*i;
+    int len = EEPROM.read(offset);
+    char spiceName[len+1];
+    for (int i = 0; i < len; i++) {
+      spiceName[i] = EEPROM.read(offset+i+1);
+    }
+    spiceName[len] = '\0';
+    Serial.print("JAR ");
+    Serial.print(i);
+    Serial.print(": ");
+    Serial.println(spiceName);
+  }
   // TODO: Set names on display
 }
 
@@ -255,6 +364,13 @@ int pulseWidth(int angle) {
   pulse_wide  = map(angle, 0, 180, MIN_PULSE_WIDTH, MAX_PULSE_WIDTH);
   analog_value = int(float(pulse_wide) / 1000000 * FREQUENCY * 4096);
   return analog_value;
+}
+
+// Source: https://learn.adafruit.com/memories-of-an-arduino/measuring-free-memory
+int freeRam() {
+  extern int __heap_start, *__brkval; 
+  int v; 
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
 }
 
 /* --------------------------------------------------------------- */
