@@ -1,4 +1,5 @@
 #include <Adafruit_PWMServoDriver.h>
+#include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>
 #include <EEPROM.h>
 #include <SoftwareSerial.h>
@@ -41,9 +42,21 @@
 #define NAMES_START_ADDR 26   // length1, name1, length2, name2 ... length6, name6 = (1*6) + (24*6) = 150 bytes - length 0 means default name
 #define NAMES_ADDR_OFFSET 25  // Every 25 bytes is a new name
 
+// LEDs
+#define LEDS_PER_JAR 3
+#define LED_PIN_OFFSET 3
 
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // Define PWM controller
 SoftwareSerial bluetoothSerial(10, 11);   // Define RX and TX ports instead of using default 0, 1 ports
+
+// LED Strips
+Adafruit_NeoPixel lightsArray[NUM_JARS];
+// Adafruit_NeoPixel jarOneLights = Adafruit_NeoPixel(3, 3, NEO_GRB + NEO_KHZ800);
+// Adafruit_NeoPixel jarTwoLights = Adafruit_NeoPixel(3, 4, NEO_GRB + NEO_KHZ800);
+// Adafruit_NeoPixel jarThreeLights = Adafruit_NeoPixel(3, 5, NEO_GRB + NEO_KHZ800);
+// Adafruit_NeoPixel jarFourLights = Adafruit_NeoPixel(3, 6, NEO_GRB + NEO_KHZ800);
+// Adafruit_NeoPixel jarFiveLights = Adafruit_NeoPixel(3, 7, NEO_GRB + NEO_KHZ800);
+// Adafruit_NeoPixel jarSixLights = Adafruit_NeoPixel(3, 8, NEO_GRB + NEO_KHZ800);
 
 // Serial data
 byte deviceState = 0;   // 0 = idle, 1 = dispensing, 2 = jar disconnect,  3 = bad state
@@ -61,8 +74,7 @@ int servo_state[NUM_JARS];    // -1 = small, 0 = center, 1 = big
 long prevMillis = 0;
 
 void setup() {
-  // TODO: Load data from EEPROM
-  // TODO: Set LEDs and spice names on display
+  intializeLights();
   Serial.begin(9600);
   bluetoothSerial.begin(9600);
   while (!Serial & !bluetoothSerial) {
@@ -91,6 +103,18 @@ void setup() {
 }
 
 void loop() {
+
+  boolean jarDisconneted = isJarDisonncted();
+  if (jarDisconneted) {
+    if (deviceState == 1) {
+      // If we were dispensing and a jar was disconnect, halt, and reset
+      resetServos();
+      resetDispenseData();
+    }
+    deviceState = 2;
+  } else {
+    deviceState = 0;
+  }
 
   if (deviceState == 1) {
     dispenseSpices();
@@ -158,21 +182,25 @@ void loop() {
       }
       namesWereSet();
     } else if (type == TYPE_DISPENSE) {
-      JsonArray& smallsData = root[SMALL_KEY];
-      JsonArray& bigsData = root[BIG_KEY];
-      for (int i = 0; i < NUM_JARS; i++) {
-        smalls[i] = smallsData[i];
-        bigs[i] = bigsData[i];
-        int small = smalls[i];
-        int big = bigs[i];
-        Serial.print("JAR ");
-        Serial.print(i);
-        Serial.print(": ");
-        Serial.print(small);
-        Serial.print(", ");
-        Serial.println(big);
-      }
-      deviceState = 1;
+        if (deviceState == 2) {
+          Serial.println("Jars are disconnected, ignoring JSON");
+        } else {
+          JsonArray& smallsData = root[SMALL_KEY];
+          JsonArray& bigsData = root[BIG_KEY];
+          for (int i = 0; i < NUM_JARS; i++) {
+            smalls[i] = smallsData[i];
+            bigs[i] = bigsData[i];
+            int small = smalls[i];
+            int big = bigs[i];
+            Serial.print("JAR ");
+            Serial.print(i);
+            Serial.print(": ");
+            Serial.print(small);
+            Serial.print(", ");
+            Serial.println(big);
+          }
+          deviceState = 1;
+        }
     } else {
       Serial.print("JSON data type '");
       Serial.print(type);
@@ -184,8 +212,8 @@ void loop() {
     if (strcmp(receivedChars, "state") == 0) {
       bluetoothSerial.print(deviceState);
     } else if (strcmp(receivedChars, "reset_oG9MThf4fD") == 0) {
-      // TODO: Stop everything, reset variables, EEPROM (by reseting first 2 bits and len bits), and motor positions
       bluetoothSerial.print("reseting dispenser");
+      resetEverything();
     }
   }
 
@@ -232,6 +260,15 @@ void namesWereSet() {
   EEPROM.update(NAMES_ARE_SET_ADDR, 1);
 }
 
+void intializeLights() {
+  for (int i = 0; i < NUM_JARS; i++) {
+    int pinNum = i + LED_PIN_OFFSET;
+    // lightsArray[i] = Adafruit_NeoPixel(LEDS_PER_JAR, pinNum, NEO_GRB + NEO_KHZ800);
+    // lightsArray[i].begin();
+    // lightsArray[i].show();
+  }
+}
+
 void configureLights(int jar, int red, int green, int blue, int white) {
  // Save to EEPROM
  int offset = LED_START_ADDR + LED_ADDR_OFFSET*jar;
@@ -239,7 +276,7 @@ void configureLights(int jar, int red, int green, int blue, int white) {
  EEPROM.update(offset+1, green);
  EEPROM.update(offset+2, blue);
  EEPROM.update(offset+3, white);
- // TODO: Set LEDS
+ setLights(jar, red, green, blue, white);
 }
 
 void configureLightsOnBoot() {
@@ -260,12 +297,11 @@ void configureLightsOnBoot() {
     Serial.print(blue);
     Serial.print(", ");
     Serial.println(white);
+    setLights(i, red, green, blue, white);
   }
-  // TODO: Set the LEDs
 }
 
 void configureSpiceName(int jar, char *name) {
-  Serial.println("A1");
   // Save to EEPROM
   int len = strlen(name);
   // Assumption: it is app's job to make sure it's not null
@@ -279,8 +315,7 @@ void configureSpiceName(int jar, char *name) {
     Serial.print(", ");
     Serial.println(name[i]);
   }
-  Serial.println("A2");
-  // TODO: Set names on display
+  setNameOnDisplay(jar, name);
 }
 
 void configureSpiceNamesOnBoot() {
@@ -297,8 +332,8 @@ void configureSpiceNamesOnBoot() {
     Serial.print(i);
     Serial.print(": ");
     Serial.println(spiceName);
+    setNameOnDisplay(i, spiceName);
   }
-  // TODO: Set names on display
 }
 
 void dispenseSpices() {
@@ -358,6 +393,18 @@ void dispenseSpiceForJar(int jar) {
   }
 }
 
+void setLights(int jar, int red, int green, int blue, int white) {
+  Serial.print("Setting lights for jar ");
+  Serial.println(jar);
+  for (int i = 0; i < LEDS_PER_JAR; i++) {
+    // lightsArray[jar].setPixelColor(i, red, green, blue, white);
+  }
+}
+
+void setNameOnDisplay(int jar, char *name) {
+  // TODO: Set the spice name on the screen
+}
+
 // Converts angle to pulse width
 int pulseWidth(int angle) {
   int pulse_wide, analog_value;
@@ -373,11 +420,35 @@ int freeRam() {
   return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
 }
 
+boolean isJarDisonncted() {
+  // TODO: Read analog values and determine correct state
+  return false;
+}
+
+void resetEverything() {
+  deviceState = 0;
+  resetServos();
+  resetDispenseData();
+  resetEEPROM();
+}
+
+void resetServos() {
+  // TODO: Move servo back to their positions and reset the state array
+}
+
+void resetDispenseData() {
+  // TODO: Clear dispensing related arrays
+}
+
+void resetEEPROM() {
+  // TODO: Reset EEPROM by reseting first 2 bits and len bits (minimize updates)
+}
+
 /* --------------------------------------------------------------- */
-/* Code that we might need later... */
+/* For reference and code we might need later.. */
 /* --------------------------------------------------------------- */
 
-/* PWM Syntax */
+/* PWM Driver Syntax */
 
 // setPWM Arguments
 // channel: The channel that should be updated with the new values (0..15)
@@ -385,21 +456,14 @@ int freeRam() {
 // off:the tick (between 0..4095) when the signal should transition from high to low
 // pwm.setPWM(15, 1024, 3072)
 
-/* JSON Parsing */
+/* NeoPixel LEDs Syntax */
 
-//  char json[] = "{\"sensor\":\"gps\",\"time\":1351824120,\"data\":[48.756080,2.302038]}";
-//  StaticJsonBuffer<512> jsonBuffer;
-//  JsonObject& root = jsonBuffer.parseObject(json);
-//  if (!root.success()) {
-//    Serial.println("JSON Parsing Failed");
-//  }
-//  
-//  const char* sensor = root["sensor"];
-//  long time = root["time"];
-//  double latitude  = root["data"][0];
-//  double longitude = root["data"][1];
-//
-//  Serial.println(sensor);
-//  Serial.println(time);
-//  Serial.println(latitude, 6);
-//  Serial.println(longitude, 6);
+// Parameter 1 = number of pixels in strip
+// Parameter 2 = pin number (most are valid)
+// Parameter 3 = pixel type flags, add together as needed:
+// NEO_KHZ800  800 KHz bitstream (most NeoPixel products w/WS2812 LEDs)
+// NEO_KHZ400  400 KHz (classic 'v1' (not v2) FLORA pixels, WS2811 drivers)
+// NEO_GRB     Pixels are wired for GRB bitstream (most NeoPixel products)
+// NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
+// Adafruit_NeoPixel strip = Adafruit_NeoPixel(60, PIN, NEO_GRB + NEO_KHZ800);
+    
