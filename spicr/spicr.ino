@@ -17,9 +17,13 @@
 
 // JSON data type values
 #define TYPE_LEDS "leds"
+#define TYPE_LEDS_SINGLE "leds-s"
+#define TYPE_NAME "name"
 #define TYPE_NAMES "names"
 #define TYPE_DISPENSE "dispense"
 // JSON keys
+#define JAR_NUM_KEY "jar"
+#define COLOUR_KEY "colour"
 #define RED_KEY "reds"
 #define GREEN_KEY "greens"
 #define BLUE_KEY "blues"
@@ -46,17 +50,16 @@
 #define LEDS_PER_JAR 3
 #define LED_PIN_OFFSET 3
 
+// Strings to save memory (for debugging)
+#define JAR_STR "JAR "
+#define LED_STR "LED "
+#define ERR_STR "ERROR "
+
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // Define PWM controller
 SoftwareSerial bluetoothSerial(10, 11);   // Define RX and TX ports instead of using default 0, 1 ports
 
 // LED Strips
 Adafruit_NeoPixel lightsArray[NUM_JARS];
-// Adafruit_NeoPixel jarOneLights = Adafruit_NeoPixel(3, 3, NEO_GRB + NEO_KHZ800);
-// Adafruit_NeoPixel jarTwoLights = Adafruit_NeoPixel(3, 4, NEO_GRB + NEO_KHZ800);
-// Adafruit_NeoPixel jarThreeLights = Adafruit_NeoPixel(3, 5, NEO_GRB + NEO_KHZ800);
-// Adafruit_NeoPixel jarFourLights = Adafruit_NeoPixel(3, 6, NEO_GRB + NEO_KHZ800);
-// Adafruit_NeoPixel jarFiveLights = Adafruit_NeoPixel(3, 7, NEO_GRB + NEO_KHZ800);
-// Adafruit_NeoPixel jarSixLights = Adafruit_NeoPixel(3, 8, NEO_GRB + NEO_KHZ800);
 
 // Serial data
 byte deviceState = 0;   // 0 = idle, 1 = dispensing, 2 = jar disconnect,  3 = bad state
@@ -65,10 +68,10 @@ char receivedChars[numChars];
 boolean newData = false;
 
 // Dispense data
-int smalls[NUM_JARS];
-int bigs[NUM_JARS];
-int done_dispensing[NUM_JARS];
-int servo_state[NUM_JARS];    // -1 = small, 0 = center, 1 = big
+byte smalls[NUM_JARS];
+byte bigs[NUM_JARS];
+byte done_dispensing[NUM_JARS];
+byte servo_state[NUM_JARS];    // -1 = small, 0 = center, 1 = big
 
 // Servo timing
 long prevMillis = 0;
@@ -82,23 +85,25 @@ void setup() {
   }
   pwm.begin();
   pwm.setPWMFreq(FREQUENCY);
-  Serial.println("<Arduino is ready>");
+  Serial.println("<Ready>");
   // TEMP
   byte lightsSet = EEPROM.read(LED_ARE_SET_ADDR);
   if (lightsSet == 1) {
-    Serial.println("LEDs were set previously");
+    // Serial.println("LEDs were set previously");
     // Read the colours and set them
     configureLightsOnBoot();
   } else {
-    Serial.println("LEDS have never been set");
+    // Serial.println("LEDS have never been set");
+    setDefaultLighting();
   }
   byte namesSet = EEPROM.read(NAMES_ARE_SET_ADDR);
   if (namesSet == 1) {
-    Serial.println("Spice names were set previously");
+    // Serial.println("Spice names were set previously");
     // Read the names and set them on the screen
     configureSpiceNamesOnBoot();
   } else {
-    Serial.println("Spice names have never been set");
+    // Serial.println("Spice names have never been set");
+    setDefaultSpiceNames();
   }
 }
 
@@ -112,14 +117,14 @@ void loop() {
       resetDispenseData();
     }
     deviceState = 2;
-  } else {
+  } else if (deviceState == 2) {
     deviceState = 0;
   }
 
   if (deviceState == 1) {
     dispenseSpices();
   }
-  
+   
   if (Serial.available()) {
     char x = Serial.read();
     bluetoothSerial.print(x);
@@ -141,23 +146,70 @@ void loop() {
     
     JsonObject& root = jsonBuffer.parseObject(receivedChars);
     if (!root.success()) {
-      Serial.println("JSON Parsing Failed");
+      Serial.print(ERR_STR);
+      Serial.println("1");
+      // Serial.print("Free RAM: ");
+      // Serial.print(freeRam());
+      // Serial.println(" Bytes");
       return;
     }
     
     String type = root["type"];
     
-    if (type == TYPE_LEDS) {
+    if (type == TYPE_LEDS_SINGLE) {
+      byte jar = root[JAR_NUM_KEY];
+      JsonArray& colours = root[COLOUR_KEY];
+      byte red = colours[0];
+      byte green = colours[1];
+      byte blue = colours[2];
+      byte white = colours[3];
+      Serial.print(LED_STR);
+      Serial.print(jar);
+      Serial.print(": ");
+      Serial.print(red);
+      Serial.print(", ");
+      Serial.print(green);
+      Serial.print(", ");
+      Serial.print(blue);
+      Serial.print(", ");
+      Serial.println(white);
+      configureLights(jar, red, green, blue, white);
+      lightsWereSet();
+    } else if (type == TYPE_NAME) {
+      byte jar = root[JAR_NUM_KEY];
+      char *spiceName = root[TYPE_NAME];
+      Serial.print(JAR_STR);
+      Serial.print(jar);
+      Serial.print(": ");
+      Serial.println(spiceName);
+      configureSpiceName(jar, spiceName); 
+    } else if (type == TYPE_DISPENSE) {
+      JsonArray& smallsData = root[SMALL_KEY];
+      JsonArray& bigsData = root[BIG_KEY];
+      for (byte i = 0; i < NUM_JARS; i++) {
+        smalls[i] = smallsData[i];
+        bigs[i] = bigsData[i];
+        byte small = smalls[i];
+        byte big = bigs[i];
+        Serial.print(JAR_STR);
+        Serial.print(i);
+        Serial.print(": ");
+        Serial.print(small);
+        Serial.print(", ");
+        Serial.println(big);
+      }
+      deviceState = 1;
+    } else if (type == TYPE_LEDS) {
       JsonArray& reds = root[RED_KEY];
       JsonArray& greens = root[GREEN_KEY];
       JsonArray& blues = root[BLUE_KEY];
       JsonArray& whites = root[WHITE_KEY];
-      for (int i = 0; i < NUM_JARS; i++) {
-        int red = reds[i];
-        int green = greens[i];
-        int blue = blues[i];
-        int white = whites[i];
-        Serial.print("LED ");
+      for (byte i = 0; i < NUM_JARS; i++) {
+        byte red = reds[i];
+        byte green = greens[i];
+        byte blue = blues[i];
+        byte white = whites[i];
+        Serial.print(LED_STR);
         Serial.print(i);
         Serial.print(": ");
         Serial.print(red);
@@ -172,39 +224,19 @@ void loop() {
       lightsWereSet();
     } else if (type == TYPE_NAMES) {
       JsonArray& spiceNames = root[NAMES_KEY];
-      for (int i = 0; i < NUM_JARS; i++) {
+      for (byte i = 0; i < NUM_JARS; i++) {
         char *spiceName = spiceNames[i];    // For some reason, String doesn't work
-        Serial.print("JAR ");
+        Serial.print(JAR_STR);
         Serial.print(i);
         Serial.print(": ");
         Serial.println(spiceName);
         configureSpiceName(i, spiceName);
       }
       namesWereSet();
-    } else if (type == TYPE_DISPENSE) {
-        if (deviceState == 2) {
-          Serial.println("Jars are disconnected, ignoring JSON");
-        } else {
-          JsonArray& smallsData = root[SMALL_KEY];
-          JsonArray& bigsData = root[BIG_KEY];
-          for (int i = 0; i < NUM_JARS; i++) {
-            smalls[i] = smallsData[i];
-            bigs[i] = bigsData[i];
-            int small = smalls[i];
-            int big = bigs[i];
-            Serial.print("JAR ");
-            Serial.print(i);
-            Serial.print(": ");
-            Serial.print(small);
-            Serial.print(", ");
-            Serial.println(big);
-          }
-          deviceState = 1;
-        }
     } else {
-      Serial.print("JSON data type '");
-      Serial.print(type);
-      Serial.println("' not defined");
+      Serial.print(ERR_STR);
+      Serial.print("2, ");
+      Serial.println(type);
     }
   } 
   // NOT JSON
@@ -212,7 +244,7 @@ void loop() {
     if (strcmp(receivedChars, "state") == 0) {
       bluetoothSerial.print(deviceState);
     } else if (strcmp(receivedChars, "reset_oG9MThf4fD") == 0) {
-      bluetoothSerial.print("reseting dispenser");
+      bluetoothSerial.print("reseting");
       resetEverything();
     }
   }
@@ -261,17 +293,24 @@ void namesWereSet() {
 }
 
 void intializeLights() {
-  for (int i = 0; i < NUM_JARS; i++) {
-    int pinNum = i + LED_PIN_OFFSET;
+  for (byte i = 0; i < NUM_JARS; i++) {
+    byte pinNum = i + LED_PIN_OFFSET;
     // lightsArray[i] = Adafruit_NeoPixel(LEDS_PER_JAR, pinNum, NEO_GRB + NEO_KHZ800);
     // lightsArray[i].begin();
     // lightsArray[i].show();
   }
 }
 
-void configureLights(int jar, int red, int green, int blue, int white) {
+void setDefaultLighting() {
+  // Set all lights to white by default - works will with default EEPROM values 
+  for (byte i = 0; i < NUM_JARS; i++) {
+    setLights(i, 255, 255, 255, 255);
+  }
+}
+
+void configureLights(byte jar, byte red, byte green, byte blue, byte white) {
  // Save to EEPROM
- int offset = LED_START_ADDR + LED_ADDR_OFFSET*jar;
+ byte offset = LED_START_ADDR + LED_ADDR_OFFSET*jar;
  EEPROM.update(offset, red);
  EEPROM.update(offset+1, green);
  EEPROM.update(offset+2, blue);
@@ -281,13 +320,13 @@ void configureLights(int jar, int red, int green, int blue, int white) {
 
 void configureLightsOnBoot() {
   // Read the colours from EEPROM
-  for (int i = 0; i < NUM_JARS; i++) {
-    int offset = LED_START_ADDR + LED_ADDR_OFFSET*i;
-    int red = EEPROM.read(offset);
-    int green = EEPROM.read(offset+1);
-    int blue = EEPROM.read(offset+2);
-    int white = EEPROM.read(offset+3);
-    Serial.print("LED ");
+  for (byte i = 0; i < NUM_JARS; i++) {
+    byte offset = LED_START_ADDR + LED_ADDR_OFFSET*i;
+    byte red = EEPROM.read(offset);
+    byte green = EEPROM.read(offset+1);
+    byte blue = EEPROM.read(offset+2);
+    byte white = EEPROM.read(offset+3);
+    Serial.print(LED_STR);
     Serial.print(i);
     Serial.print(": ");
     Serial.print(red);
@@ -301,34 +340,40 @@ void configureLightsOnBoot() {
   }
 }
 
-void configureSpiceName(int jar, char *name) {
+void configureSpiceName(byte jar, char *name) {
   // Save to EEPROM
-  int len = strlen(name);
+  byte len = strlen(name);
   // Assumption: it is app's job to make sure it's not null
   int offset = NAMES_START_ADDR + NAMES_ADDR_OFFSET*jar;
   EEPROM.update(offset, len);
-  Serial.println(len);
+  // Serial.println(len);
   // Update each char
-  for (int i = 0; i < len; i++) {
+  for (byte i = 0; i < len; i++) {
     EEPROM.update(offset + i + 1, name[i]);
-    Serial.print(offset);
-    Serial.print(", ");
-    Serial.println(name[i]);
+    // Serial.print(offset);
+    // Serial.print(", ");
+    // Serial.println(name[i]);
   }
   setNameOnDisplay(jar, name);
 }
 
+void setDefaultSpiceNames() {
+  for (byte i = 0; i < NUM_JARS; i++) {
+    setNameOnDisplay(i, JAR_STR + (i + 1));
+  }
+}
+
 void configureSpiceNamesOnBoot() {
   // Read the names from EEPROM
-  for (int i = 0; i < NUM_JARS; i++) {
+  for (byte i = 0; i < NUM_JARS; i++) {
     int offset = NAMES_START_ADDR + NAMES_ADDR_OFFSET*i;
-    int len = EEPROM.read(offset);
+    byte len = EEPROM.read(offset);
     char spiceName[len+1];
-    for (int i = 0; i < len; i++) {
+    for (byte i = 0; i < len; i++) {
       spiceName[i] = EEPROM.read(offset+i+1);
     }
     spiceName[len] = '\0';
-    Serial.print("JAR ");
+    Serial.print(JAR_STR);
     Serial.print(i);
     Serial.print(": ");
     Serial.println(spiceName);
@@ -347,7 +392,7 @@ void dispenseSpices() {
   
   boolean allDone = true;
   // Do all the bigs first
-  for (int i = 0; i < NUM_JARS; i++) {
+  for (byte i = 0; i < NUM_JARS; i++) {
     dispenseSpiceForJar(i);
     if (done_dispensing[i] == false) {
       allDone = false;
@@ -355,13 +400,13 @@ void dispenseSpices() {
   }
   
   if (allDone == true) {
-    Serial.println("Finished dispensing all spices");
+    Serial.println("Done");
     deviceState = 0;
     memset(done_dispensing, 0, sizeof(done_dispensing));
   }
 }
 
-void dispenseSpiceForJar(int jar) {
+void dispenseSpiceForJar(byte jar) {
   if (done_dispensing[jar] == false) {
     if (servo_state[jar] != 0) {
       pwm.setPWM(jar, 0, pulseWidth(SERVO_CENTER_ANGLE));
@@ -370,43 +415,43 @@ void dispenseSpiceForJar(int jar) {
       if (smalls[jar] == 0 && bigs[jar] == 0) {
         done_dispensing[jar] = true;
       }
-      Serial.print("Centering servo for jar ");
+      Serial.print("CEN ");
       Serial.println(jar);
     }
     else if (smalls[jar] > 0) {
       pwm.setPWM(jar, 0, pulseWidth(SERVO_SMALL_ANGLE));
       smalls[jar] = smalls[jar] - 1;
       servo_state[jar] = -1;
-      Serial.print("Dispenseing small for jar ");
+      Serial.print("D-S ");
       Serial.println(jar);
     } else if (bigs[jar] > 0) {
       pwm.setPWM(jar, 0, pulseWidth(SERVO_BIG_ANGLE));
       bigs[jar] = bigs[jar] - 1;
       servo_state[jar] = 1;
-      Serial.print("Dispenseing big for jar ");
+      Serial.print("D-B ");
       Serial.println(jar);
     } else {
-      Serial.print("Jar ");
-      Serial.print(jar);
-      Serial.println(" is in bad state");
+      Serial.print(ERR_STR);
+      Serial.print("3, ");
+      Serial.println(jar);
     }
   }
 }
 
-void setLights(int jar, int red, int green, int blue, int white) {
-  Serial.print("Setting lights for jar ");
-  Serial.println(jar);
+void setLights(byte jar, byte red, byte green, byte blue, byte white) {
+  // Serial.print("Setting lights for jar ");
+  // Serial.println(jar);
   for (int i = 0; i < LEDS_PER_JAR; i++) {
     // lightsArray[jar].setPixelColor(i, red, green, blue, white);
   }
 }
 
-void setNameOnDisplay(int jar, char *name) {
+void setNameOnDisplay(byte jar, char *name) {
   // TODO: Set the spice name on the screen
 }
 
 // Converts angle to pulse width
-int pulseWidth(int angle) {
+int pulseWidth(byte angle) {
   int pulse_wide, analog_value;
   pulse_wide  = map(angle, 0, 180, MIN_PULSE_WIDTH, MAX_PULSE_WIDTH);
   analog_value = int(float(pulse_wide) / 1000000 * FREQUENCY * 4096);
@@ -466,4 +511,3 @@ void resetEEPROM() {
 // NEO_GRB     Pixels are wired for GRB bitstream (most NeoPixel products)
 // NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
 // Adafruit_NeoPixel strip = Adafruit_NeoPixel(60, PIN, NEO_GRB + NEO_KHZ800);
-    
