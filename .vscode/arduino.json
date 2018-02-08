@@ -1,6 +1,6 @@
 {
     "board": "arduino:avr:uno",
     "sketch": "spicr/spicr.ino",
-    "port": "/dev/cu.usbmodem14621",
+    "port": "/dev/cu.usbmodem146331",
     "output": "../build"
 }

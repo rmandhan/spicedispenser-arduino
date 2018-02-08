@@ -8,12 +8,12 @@
 // Define Servo constants
 #define MIN_PULSE_WIDTH       650
 #define MAX_PULSE_WIDTH       2350
-#define DEFAULT_PULSE_WIDTH   1500
 #define FREQUENCY             50
-#define SERVO_INTERVAL        1500
-#define SERVO_SMALL_ANGLE     15
-#define SERVO_CENTER_ANGLE    75
-#define SERVO_BIG_ANGLE       165
+#define SERVO_INTERVAL        1500  // in ms
+#define SERVO_SMALL_ANGLE     0
+#define SERVO_CENTER_ANGLE    85
+#define SERVO_BIG_ANGLE       170
+#define JAR_PIN_OFFSET        10    // (0 indexed)
 
 // JSON data type values
 #define TYPE_LEDS "leds"
@@ -55,7 +55,10 @@
 #define LED_STR "LED "
 #define ERR_STR "ERROR "
 
+// Servo Microcontroller
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // Define PWM controller
+
+// Bluetooth
 SoftwareSerial bluetoothSerial(10, 11);   // Define RX and TX ports instead of using default 0, 1 ports
 
 // LED Strips
@@ -105,6 +108,7 @@ void setup() {
     // Serial.println("Spice names have never been set");
     setDefaultSpiceNames();
   }
+  resetAllServos();
 }
 
 void loop() {
@@ -407,9 +411,10 @@ void dispenseSpices() {
 }
 
 void dispenseSpiceForJar(byte jar) {
+  int pinNumber = JAR_PIN_OFFSET + jar;
   if (done_dispensing[jar] == false) {
     if (servo_state[jar] != 0) {
-      pwm.setPWM(jar, 0, pulseWidth(SERVO_CENTER_ANGLE));
+      pwm.setPWM(pinNumber, 0, pulseWidth(SERVO_CENTER_ANGLE));
       servo_state[jar] = 0;
       // We might be done, check and mark as done
       if (smalls[jar] == 0 && bigs[jar] == 0) {
@@ -419,13 +424,13 @@ void dispenseSpiceForJar(byte jar) {
       Serial.println(jar);
     }
     else if (smalls[jar] > 0) {
-      pwm.setPWM(jar, 0, pulseWidth(SERVO_SMALL_ANGLE));
+      pwm.setPWM(pinNumber, 0, pulseWidth(SERVO_SMALL_ANGLE));
       smalls[jar] = smalls[jar] - 1;
       servo_state[jar] = -1;
       Serial.print("D-S ");
       Serial.println(jar);
     } else if (bigs[jar] > 0) {
-      pwm.setPWM(jar, 0, pulseWidth(SERVO_BIG_ANGLE));
+      pwm.setPWM(pinNumber, 0, pulseWidth(SERVO_BIG_ANGLE));
       bigs[jar] = bigs[jar] - 1;
       servo_state[jar] = 1;
       Serial.print("D-B ");
@@ -435,6 +440,14 @@ void dispenseSpiceForJar(byte jar) {
       Serial.print("3, ");
       Serial.println(jar);
     }
+  }
+}
+
+void resetAllServos() {
+  int pinNumber = JAR_PIN_OFFSET;
+  for (int i = 0; i < NUM_JARS; i++) {
+    pinNumber = JAR_PIN_OFFSET + i;
+    pwm.setPWM(pinNumber, 0, pulseWidth(SERVO_CENTER_ANGLE));
   }
 }
 
