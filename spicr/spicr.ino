@@ -51,6 +51,7 @@
 #define LED_PIN_OFFSET 3
 
 // Strings to save memory (for debugging)
+#define SPICE_STR "SPICE "
 #define JAR_STR "JAR "
 #define LED_STR "LED "
 #define ERR_STR "ERROR "
@@ -363,7 +364,7 @@ void configureSpiceName(byte jar, char *name) {
 
 void setDefaultSpiceNames() {
   for (byte i = 0; i < NUM_JARS; i++) {
-    setNameOnDisplay(i, JAR_STR + (i + 1));
+    setNameOnDisplay(i, SPICE_STR + (i + 1));
   }
 }
 
@@ -436,9 +437,7 @@ void dispenseSpiceForJar(byte jar) {
       Serial.print("D-B ");
       Serial.println(jar);
     } else {
-      Serial.print(ERR_STR);
-      Serial.print("3, ");
-      Serial.println(jar);
+      done_dispensing[jar] = true;
     }
   }
 }
