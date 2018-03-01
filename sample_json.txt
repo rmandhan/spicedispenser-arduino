@@ -1,6 +1,6 @@
 
-{“type”:"leds-s”,"jar":1,"colour”:[255,0,123,4]}
-{"type":"leds",“red”:[255,0,123,4,123,88],“green”:[255,0,123,4,123,88],“blue”:[255,0,123,4,123,88],“white":[2,5,10,10,7,8]}
-{"type":"name”,"jar":1,"name":“Red Pepper”}
+{"type":"leds-s","jar":1,"colour":[255,0,123,4]}
+{"type":"leds","red":[255,0,123,4,123,88],"green":[255,0,123,4,123,88],"blue":[255,0,123,4,123,88],"white":[2,5,10,10,7,8]}
+{"type":"name","jar":1,"name":"Red Pepper"}
 {"type":"names","names":["Red Pepper","Black Pepper","Salt","Turmeric Powder","Curry Powder","Cinnamon"]}
 {"type":"dispense","small":[1,0,1,0,1,0],"big":[0,1,0,4,0,2]}

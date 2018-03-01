@@ -19,6 +19,7 @@
 #define TYPE_LEDS "leds"
 #define TYPE_LEDS_SINGLE "leds-s"
 #define TYPE_NAME "name"
+
 #define TYPE_NAMES "names"
 #define TYPE_DISPENSE "dispense"
 // JSON keys
@@ -48,7 +49,7 @@
 
 // LEDs
 #define LEDS_PER_JAR 3
-#define LED_PIN_OFFSET 3
+#define LED_PIN_OFFSET 34
 
 // Strings to save memory (for debugging)
 #define SPICE_STR "SPICE "
@@ -81,7 +82,7 @@ byte servo_state[NUM_JARS];    // -1 = small, 0 = center, 1 = big
 long prevMillis = 0;
 
 void setup() {
-  intializeLights();
+  initializeLights();
   Serial.begin(9600);
   bluetoothSerial.begin(9600);
   while (!Serial & !bluetoothSerial) {
@@ -90,7 +91,7 @@ void setup() {
   pwm.begin();
   pwm.setPWMFreq(FREQUENCY);
   Serial.println("<Ready>");
-  // TEMP
+  // Setup
   byte lightsSet = EEPROM.read(LED_ARE_SET_ADDR);
   if (lightsSet == 1) {
     // Serial.println("LEDs were set previously");
@@ -178,7 +179,7 @@ void loop() {
       Serial.print(blue);
       Serial.print(", ");
       Serial.println(white);
-      configureLights(jar, red, green, blue, white);
+      configureLights(jar-1, red, green, blue, white);
       lightsWereSet();
     } else if (type == TYPE_NAME) {
       byte jar = root[JAR_NUM_KEY];
@@ -297,30 +298,30 @@ void namesWereSet() {
   EEPROM.update(NAMES_ARE_SET_ADDR, 1);
 }
 
-void intializeLights() {
+void initializeLights() {
   for (byte i = 0; i < NUM_JARS; i++) {
     byte pinNum = i + LED_PIN_OFFSET;
-    // lightsArray[i] = Adafruit_NeoPixel(LEDS_PER_JAR, pinNum, NEO_GRB + NEO_KHZ800);
-    // lightsArray[i].begin();
-    // lightsArray[i].show();
+    lightsArray[i] = Adafruit_NeoPixel(LEDS_PER_JAR, pinNum, NEO_GRB + NEO_KHZ800);
+    lightsArray[i].begin();
+    lightsArray[i].show();
   }
 }
 
 void setDefaultLighting() {
   // Set all lights to white by default - works will with default EEPROM values 
   for (byte i = 0; i < NUM_JARS; i++) {
-    setLights(i, 255, 255, 255, 255);
+    setLights(i, 50, 50, 50, 50);
   }
 }
 
 void configureLights(byte jar, byte red, byte green, byte blue, byte white) {
- // Save to EEPROM
- byte offset = LED_START_ADDR + LED_ADDR_OFFSET*jar;
- EEPROM.update(offset, red);
- EEPROM.update(offset+1, green);
- EEPROM.update(offset+2, blue);
- EEPROM.update(offset+3, white);
- setLights(jar, red, green, blue, white);
+  // Save to EEPROM
+  byte offset = LED_START_ADDR + LED_ADDR_OFFSET*jar;
+  EEPROM.update(offset, red);
+  EEPROM.update(offset+1, green);
+  EEPROM.update(offset+2, blue);
+  EEPROM.update(offset+3, white);
+  setLights(jar, red, green, blue, white);
 }
 
 void configureLightsOnBoot() {
@@ -452,9 +453,9 @@ void resetAllServos() {
 
 void setLights(byte jar, byte red, byte green, byte blue, byte white) {
   // Serial.print("Setting lights for jar ");
-  // Serial.println(jar);
   for (int i = 0; i < LEDS_PER_JAR; i++) {
-    // lightsArray[jar].setPixelColor(i, red, green, blue, white);
+    lightsArray[jar].setPixelColor(i, red, green, blue);
+    lightsArray[jar].show();
   }
 }
 
