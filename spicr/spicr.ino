@@ -301,9 +301,9 @@ void namesWereSet() {
 void initializeLights() {
   for (byte i = 0; i < NUM_JARS; i++) {
     byte pinNum = i + LED_PIN_OFFSET;
-    lightsArray[i] = Adafruit_NeoPixel(LEDS_PER_JAR, pinNum, NEO_GRB + NEO_KHZ800);
-    lightsArray[i].begin();
-    lightsArray[i].show();
+    // lightsArray[i] = Adafruit_NeoPixel(LEDS_PER_JAR, pinNum, NEO_GRB + NEO_KHZ800);
+    // lightsArray[i].begin();
+    // lightsArray[i].show();
   }
 }
 
@@ -454,8 +454,8 @@ void resetAllServos() {
 void setLights(byte jar, byte red, byte green, byte blue, byte white) {
   // Serial.print("Setting lights for jar ");
   for (int i = 0; i < LEDS_PER_JAR; i++) {
-    lightsArray[jar].setPixelColor(i, red, green, blue);
-    lightsArray[jar].show();
+    // lightsArray[jar].setPixelColor(i, red, green, blue);
+    // lightsArray[jar].show();
   }
 }
 
