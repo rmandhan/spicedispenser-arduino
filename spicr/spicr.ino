@@ -128,8 +128,10 @@ void loop() {
       resetDispenseData();
     }
     deviceState = 2;
+    updateStateOnDisplay();
   } else if (deviceState == 2) {
     deviceState = 0;
+    updateStateOnDisplay();
   }
 
   if (deviceState == 1) {
@@ -210,6 +212,7 @@ void loop() {
         Serial.println(big);
       }
       deviceState = 1;
+      updateStateOnDisplay();
     } else if (type == TYPE_LEDS) {
       JsonArray& reds = root[RED_KEY];
       JsonArray& greens = root[GREEN_KEY];
@@ -424,6 +427,7 @@ void dispenseSpices() {
     Serial.println("Done");
     deviceState = 0;
     memset(done_dispensing, 0, sizeof(done_dispensing));
+    updateStateOnDisplay();
   }
 }
 
@@ -509,6 +513,20 @@ void updateQuantityOnDisplay(byte jar, float quantity) {
   didWriteToDisplay();
 }
 
+void updateStateOnDisplay() {
+  char *msg;
+  if (deviceState == 0) {
+    msg = "Dispenser is Ready";
+  } else {
+    msg = "Dispenser is Busy";
+  }
+  displaySerial.print("t12.txt=");
+  displaySerial.print("\"");
+  displaySerial.print("Dispenser is Ready");
+  displaySerial.print("\"");
+  didWriteToDisplay();
+}
+
 void didWriteToDisplay() {
   displaySerial.write(0xff);
   displaySerial.write(0xff);
@@ -550,6 +568,7 @@ void resetServos() {
     servo_state[i] = 0;
   }
   deviceState = 0;
+  updateStateOnDisplay();
   Serial.print(RESET_STR);
   Serial.print("1\n");
 }
