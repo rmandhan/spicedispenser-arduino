@@ -36,8 +36,7 @@
 // Define sending data type value
 #define STATE "state"
 
-#define NUM_JARS 6    // MUST BE LESS THAN MAX_JARS
-#define MAX_JARS 6    // MAX JARS = 6 (EEPROM is hardcoded)
+#define NUM_JARS 4    // Number of jars
 
 // EEPROM
 #define LED_ARE_SET_ADDR 0    // 1st bit represents if LED values exist
@@ -56,12 +55,16 @@
 #define JAR_STR "JAR "
 #define LED_STR "LED "
 #define ERR_STR "ERROR "
+#define RESET_STR "RESET "
 
 // Servo Microcontroller
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // Define PWM controller
 
 // Bluetooth
 SoftwareSerial bluetoothSerial(10, 11);   // Define RX and TX ports instead of using default 0, 1 ports
+
+// Display
+SoftwareSerial displaySerial(8, 9);
 
 // LED Strips
 Adafruit_NeoPixel lightsArray[NUM_JARS];
@@ -85,7 +88,8 @@ void setup() {
   initializeLights();
   Serial.begin(9600);
   bluetoothSerial.begin(9600);
-  while (!Serial & !bluetoothSerial) {
+  displaySerial.begin(9600);
+  while (!Serial & !bluetoothSerial & !displaySerial) {
     // Wait serial port initialization
   }
   pwm.begin();
@@ -110,7 +114,7 @@ void setup() {
     // Serial.println("Spice names have never been set");
     setDefaultSpiceNames();
   }
-  resetAllServos();
+  resetServos();
 }
 
 void loop() {
@@ -250,7 +254,7 @@ void loop() {
     if (strcmp(receivedChars, "state") == 0) {
       bluetoothSerial.print(deviceState);
     } else if (strcmp(receivedChars, "reset_oG9MThf4fD") == 0) {
-      bluetoothSerial.print("reseting");
+      bluetoothSerial.print("RESETTING");
       resetEverything();
     }
   }
@@ -301,17 +305,21 @@ void namesWereSet() {
 void initializeLights() {
   for (byte i = 0; i < NUM_JARS; i++) {
     byte pinNum = i + LED_PIN_OFFSET;
-    // lightsArray[i] = Adafruit_NeoPixel(LEDS_PER_JAR, pinNum, NEO_GRB + NEO_KHZ800);
-    // lightsArray[i].begin();
-    // lightsArray[i].show();
+    lightsArray[i] = Adafruit_NeoPixel(LEDS_PER_JAR, pinNum, NEO_GRB + NEO_KHZ800);
+    lightsArray[i].begin();
+    lightsArray[i].show();
   }
 }
 
 void setDefaultLighting() {
   // Set all lights to white by default - works will with default EEPROM values 
-  for (byte i = 0; i < NUM_JARS; i++) {
-    setLights(i, 50, 50, 50, 50);
-  }
+  // for (byte i = 0; i < NUM_JARS; i++) {
+  //   setLights(i, 50, 50, 50, 50);
+  // } 
+  setLights(0, 255, 0, 0, 0);
+  setLights(1, 0, 255, 0, 0);
+  setLights(2, 0, 0, 255, 0);
+  setLights(3, 255, 100, 0, 0);
 }
 
 void configureLights(byte jar, byte red, byte green, byte blue, byte white) {
@@ -443,24 +451,61 @@ void dispenseSpiceForJar(byte jar) {
   }
 }
 
-void resetAllServos() {
-  int pinNumber = JAR_PIN_OFFSET;
-  for (int i = 0; i < NUM_JARS; i++) {
-    pinNumber = JAR_PIN_OFFSET + i;
-    pwm.setPWM(pinNumber, 0, pulseWidth(SERVO_CENTER_ANGLE));
-  }
-}
-
 void setLights(byte jar, byte red, byte green, byte blue, byte white) {
   // Serial.print("Setting lights for jar ");
   for (int i = 0; i < LEDS_PER_JAR; i++) {
-    // lightsArray[jar].setPixelColor(i, red, green, blue);
-    // lightsArray[jar].show();
+    lightsArray[jar].setPixelColor(i, red, green, blue);
+    lightsArray[jar].show();
   }
 }
 
 void setNameOnDisplay(byte jar, char *name) {
-  // TODO: Set the spice name on the screen
+  // This needs to be hardcoded because of the nature of the display
+  // Display has 4 jars with IDs t0, t3, t10, and t23
+  char *id;
+  if (jar == 0) {
+    id = "t0";
+  } else if (jar == 1) {
+    id = "t3";
+  } else if (jar == 2) {
+    id = "t10";
+  } else if (jar == 3) {
+    id = "t23";
+  }
+  displaySerial.print(id);
+  displaySerial.print(".txt=");
+  displaySerial.print("\"");
+  displaySerial.print(name);
+  displaySerial.print("\"");
+  didWriteToDisplay();
+}
+
+void updateQuantityOnDisplay(byte jar, float quantity) {
+  // This needs to be hardcoded because of the nature of the display
+  // Display has 4 jars with IDs t2, t5, t15, t25
+  char *id;
+  char qty[6];
+  if (jar == 0) {
+    id = "t2";
+  } else if (jar == 1) {
+    id = "t5";
+  } else if (jar == 2) {
+    id = "t15";
+  } else if (jar == 3) {
+    id = "t25";
+  }
+  displaySerial.print(id);
+  displaySerial.print(".txt=");
+  displaySerial.print("\"");
+  displaySerial.print(quantity, 2);
+  displaySerial.print("\"");
+  didWriteToDisplay();
+}
+
+void didWriteToDisplay() {
+  displaySerial.write(0xff);
+  displaySerial.write(0xff);
+  displaySerial.write(0xff);
 }
 
 // Converts angle to pulse width
@@ -484,43 +529,35 @@ boolean isJarDisonncted() {
 }
 
 void resetEverything() {
-  deviceState = 0;
   resetServos();
   resetDispenseData();
   resetEEPROM();
 }
 
 void resetServos() {
-  // TODO: Move servo back to their positions and reset the state array
+  int pinNumber;
+  // Reset Servo Positions
+  for (int i = 0; i < NUM_JARS; i++) {
+    pinNumber = JAR_PIN_OFFSET + i;
+    pwm.setPWM(pinNumber, 0, pulseWidth(SERVO_CENTER_ANGLE));
+    servo_state[i] = 0;
+  }
+  deviceState = 0;
+  Serial.print(RESET_STR);
+  Serial.print("1\n");
 }
 
 void resetDispenseData() {
-  // TODO: Clear dispensing related arrays
+  // There is no need to clear smalls and bigs since we don't ever dispense without overriding that data
+  memset(done_dispensing, 0, sizeof(done_dispensing));
+  Serial.print(RESET_STR);
+  Serial.print("2\n");
 }
 
 void resetEEPROM() {
-  // TODO: Reset EEPROM by reseting first 2 bits and len bits (minimize updates)
+  // Reset EEPROM by reseting first 2 bits and len bits (minimize updates)
+  EEPROM.update(LED_ARE_SET_ADDR, 0);
+  EEPROM.update(NAMES_ARE_SET_ADDR, 0);
+  Serial.print(RESET_STR);
+  Serial.print("3\n");
 }
-
-/* --------------------------------------------------------------- */
-/* For reference and code we might need later.. */
-/* --------------------------------------------------------------- */
-
-/* PWM Driver Syntax */
-
-// setPWM Arguments
-// channel: The channel that should be updated with the new values (0..15)
-// on: The tick (between 0..4095) when the signal should transition from low to high
-// off:the tick (between 0..4095) when the signal should transition from high to low
-// pwm.setPWM(15, 1024, 3072)
-
-/* NeoPixel LEDs Syntax */
-
-// Parameter 1 = number of pixels in strip
-// Parameter 2 = pin number (most are valid)
-// Parameter 3 = pixel type flags, add together as needed:
-// NEO_KHZ800  800 KHz bitstream (most NeoPixel products w/WS2812 LEDs)
-// NEO_KHZ400  400 KHz (classic 'v1' (not v2) FLORA pixels, WS2811 drivers)
-// NEO_GRB     Pixels are wired for GRB bitstream (most NeoPixel products)
-// NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
-// Adafruit_NeoPixel strip = Adafruit_NeoPixel(60, PIN, NEO_GRB + NEO_KHZ800);
