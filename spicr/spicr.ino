@@ -114,6 +114,7 @@ void setup() {
     // Serial.println("Spice names have never been set");
     setDefaultSpiceNames();
   }
+  resetSpiceQuantities(); // Reset quantities to 0 on display
   resetServos();
 }
 
@@ -395,6 +396,12 @@ void configureSpiceNamesOnBoot() {
   }
 }
 
+void resetSpiceQuantities() {
+  for (byte i = 0; i < NUM_JARS; i++) {
+    updateQuantityOnDisplay(i, 0);
+  }
+}
+
 void dispenseSpices() {
   // Make sure enough time has passed before moving the servo again
   unsigned long currentMillis = millis();
@@ -453,7 +460,7 @@ void dispenseSpiceForJar(byte jar) {
 
 void setLights(byte jar, byte red, byte green, byte blue, byte white) {
   // Serial.print("Setting lights for jar ");
-  for (int i = 0; i < LEDS_PER_JAR; i++) {
+  for (byte i = 0; i < LEDS_PER_JAR; i++) {
     lightsArray[jar].setPixelColor(i, red, green, blue);
     lightsArray[jar].show();
   }
@@ -537,7 +544,7 @@ void resetEverything() {
 void resetServos() {
   int pinNumber;
   // Reset Servo Positions
-  for (int i = 0; i < NUM_JARS; i++) {
+  for (byte i = 0; i < NUM_JARS; i++) {
     pinNumber = JAR_PIN_OFFSET + i;
     pwm.setPWM(pinNumber, 0, pulseWidth(SERVO_CENTER_ANGLE));
     servo_state[i] = 0;
