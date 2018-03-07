@@ -6,6 +6,10 @@
 #include <Wire.h>
 #include <Nextion.h>
 
+// Flags (Comment to disable functionality)
+// Required because when LEDs are not connected, the code freezes up
+#define LEDS_ENABLE
+
 // Define Servo constants
 #define MIN_PULSE_WIDTH       650
 #define MAX_PULSE_WIDTH       2350
@@ -72,7 +76,9 @@ SoftwareSerial displaySerial(8, 9);       // Define RX and TX ports instead of u
 SoftwareSerial bluetoothSerial(10, 11);
 
 // LED Strips
+#ifdef LEDS_ENABLE
 Adafruit_NeoPixel lightsArray[NUM_JARS];
+#endif
 
 // Serial data
 byte deviceState = 0;   // 0 = idle, 1 = dispensing, 2 = jar disconnect,  3 = bad state
@@ -352,12 +358,14 @@ void namesWereSet() {
 }
 
 void initializeLights() {
+  #ifdef LEDS_ENABLE
   for (byte i = 0; i < NUM_JARS; i++) {
     byte pinNum = i + LED_PIN_OFFSET;
     lightsArray[i] = Adafruit_NeoPixel(LEDS_PER_JAR, pinNum, NEO_GRB + NEO_KHZ800);
     lightsArray[i].begin();
     lightsArray[i].show();
   }
+  #endif
 }
 
 void setDefaultLighting() {
@@ -508,11 +516,13 @@ void dispenseSpiceForJar(byte jar) {
 }
 
 void setLights(byte jar, byte red, byte green, byte blue, byte white) {
+  #ifdef LEDS_ENABLE
   // Serial.print("Setting lights for jar ");
   for (byte i = 0; i < LEDS_PER_JAR; i++) {
     lightsArray[jar].setPixelColor(i, red, green, blue);
     lightsArray[jar].show();
   }
+  #endif
 }
 
 void setNameOnDisplay(byte jar, char *name) {
