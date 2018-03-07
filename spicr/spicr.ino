@@ -4,6 +4,7 @@
 #include <EEPROM.h>
 #include <SoftwareSerial.h>
 #include <Wire.h>
+#include <Nextion.h>
 
 // Define Servo constants
 #define MIN_PULSE_WIDTH       650
@@ -50,6 +51,12 @@
 #define LEDS_PER_JAR 3
 #define LED_PIN_OFFSET 34
 
+// Dispense Quantities & Limits
+#define TSP_STEP 0.25
+#define TBS_STEP 0.50
+#define MAX_SMALLS 60
+#define MAX_BIGS 10
+
 // Strings to save memory (for debugging)
 #define SPICE_STR "SPICE "
 #define JAR_STR "JAR "
@@ -61,10 +68,8 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // Define PWM controller
 
 // Bluetooth
-SoftwareSerial bluetoothSerial(10, 11);   // Define RX and TX ports instead of using default 0, 1 ports
-
-// Display
-SoftwareSerial displaySerial(8, 9);
+SoftwareSerial displaySerial(8, 9);       // Define RX and TX ports instead of using default 0, 1 ports
+SoftwareSerial bluetoothSerial(10, 11);
 
 // LED Strips
 Adafruit_NeoPixel lightsArray[NUM_JARS];
@@ -77,45 +82,75 @@ boolean newData = false;
 
 // Dispense data
 byte smalls[NUM_JARS];
+byte displaySmalls[NUM_JARS];
 byte bigs[NUM_JARS];
+byte displayBigs[NUM_JARS];
+byte displayVolumes[NUM_JARS];  // 0 = tbs and 1 = tps
 byte done_dispensing[NUM_JARS];
 byte servo_state[NUM_JARS];    // -1 = small, 0 = center, 1 = big
 
 // Servo timing
 long prevMillis = 0;
 
+// Display inputs
+NexButton b0 = NexButton(0, 4, "b0");       // Dispense Button
+NexButton b1 = NexButton(0, 6, "b1");       // Jar 1; +
+NexButton b2 = NexButton(0, 7, "b2");       // Jar 1; -
+NexCheckbox c0 = NexCheckbox(0, 9, "c0");   // Jar 1; tbs
+NexCheckbox c1 = NexCheckbox(0, 14, "c1");  // Jar 1; tps
+NexButton b3 = NexButton(0, 18, "b3");      // Jar 2; +
+NexButton b4 = NexButton(0, 19, "b4");      // Jar 2; -
+NexCheckbox c2 = NexCheckbox(0, 21, "c2");  // Jar 2; tbs
+NexCheckbox c3 = NexCheckbox(0, 25, "c3");  // Jar 2; tps
+NexButton b5 = NexButton(0, 29, "b5");      // Jar 3; +
+NexButton b6 = NexButton(0, 30, "b6");      // Jar 3; -
+NexCheckbox c4 = NexCheckbox(0, 32, "c4");  // Jar 3; tbs
+NexCheckbox c5 = NexCheckbox(0, 36, "c5");  // Jar 3; tps
+NexButton b7 = NexButton(0, 40, "b7");      // Jar 3; +
+NexButton b8 = NexButton(0, 41, "b8");      // Jar 3; -
+NexCheckbox c6 = NexCheckbox(0, 43, "c6");  // Jar 3; tbs
+NexCheckbox c7 = NexCheckbox(0, 47, "c7");  // Jar 3; tps
+
+// Display touch event list
+NexTouch *nex_listen_list[] = {
+  &b0, &b1, &b2, &b3, &b4, &b5, &b6, &b7, &b8,
+  &c0, &c1, &c2, &c3, &c4, &c5, &c6, &c7,
+  NULL  // String terminated
+};
+
 void setup() {
-  initializeLights();
   Serial.begin(9600);
   bluetoothSerial.begin(9600);
   displaySerial.begin(9600);
   while (!Serial & !bluetoothSerial & !displaySerial) {
     // Wait serial port initialization
   }
+  // Setup
   pwm.begin();
   pwm.setPWMFreq(FREQUENCY);
-  Serial.println("<Ready>");
-  // Setup
+  initializeLights();
+  setupDisplayCallbacks();
+  // Update Lights & Display
   byte lightsSet = EEPROM.read(LED_ARE_SET_ADDR);
   if (lightsSet == 1) {
-    // Serial.println("LEDs were set previously");
     // Read the colours and set them
     configureLightsOnBoot();
   } else {
-    // Serial.println("LEDS have never been set");
     setDefaultLighting();
   }
   byte namesSet = EEPROM.read(NAMES_ARE_SET_ADDR);
   if (namesSet == 1) {
-    // Serial.println("Spice names were set previously");
     // Read the names and set them on the screen
     configureSpiceNamesOnBoot();
   } else {
-    // Serial.println("Spice names have never been set");
     setDefaultSpiceNames();
   }
-  resetSpiceQuantities(); // Reset quantities to 0 on display
+  // Reset quantities to 0 on display
+  resetSpiceQuantities();
+  // Reset Servos
   resetServos();
+  // All Ready
+  Serial.println("<Ready>");
 }
 
 void loop() {
@@ -137,7 +172,11 @@ void loop() {
   if (deviceState == 1) {
     dispenseSpices();
   }
-   
+
+  // Read input from display
+  nexLoop(nex_listen_list);
+
+  // Read data from bluetooth 
   if (Serial.available()) {
     char x = Serial.read();
     bluetoothSerial.print(x);
@@ -169,7 +208,8 @@ void loop() {
     
     String type = root["type"];
     
-    if (type == TYPE_LEDS_SINGLE) {
+    if (type == TYPE_LEDS_SINGLE) 
+    {
       byte jar = root[JAR_NUM_KEY];
       JsonArray& colours = root[COLOUR_KEY];
       byte red = colours[0];
@@ -188,7 +228,8 @@ void loop() {
       Serial.println(white);
       configureLights(jar-1, red, green, blue, white);
       lightsWereSet();
-    } else if (type == TYPE_NAME) {
+    } 
+    else if (type == TYPE_NAME) {
       byte jar = root[JAR_NUM_KEY];
       char *spiceName = root[TYPE_NAME];
       Serial.print(JAR_STR);
@@ -196,7 +237,8 @@ void loop() {
       Serial.print(": ");
       Serial.println(spiceName);
       configureSpiceName(jar, spiceName); 
-    } else if (type == TYPE_DISPENSE) {
+    } 
+    else if (type == TYPE_DISPENSE) {
       JsonArray& smallsData = root[SMALL_KEY];
       JsonArray& bigsData = root[BIG_KEY];
       for (byte i = 0; i < NUM_JARS; i++) {
@@ -213,7 +255,8 @@ void loop() {
       }
       deviceState = 1;
       updateStateOnDisplay();
-    } else if (type == TYPE_LEDS) {
+    } 
+    else if (type == TYPE_LEDS) {
       JsonArray& reds = root[RED_KEY];
       JsonArray& greens = root[GREEN_KEY];
       JsonArray& blues = root[BLUE_KEY];
@@ -236,7 +279,8 @@ void loop() {
        configureLights(i, red, green, blue, white);
       }
       lightsWereSet();
-    } else if (type == TYPE_NAMES) {
+    } 
+    else if (type == TYPE_NAMES) {
       JsonArray& spiceNames = root[NAMES_KEY];
       for (byte i = 0; i < NUM_JARS; i++) {
         char *spiceName = spiceNames[i];    // For some reason, String doesn't work
@@ -247,7 +291,8 @@ void loop() {
         configureSpiceName(i, spiceName);
       }
       namesWereSet();
-    } else {
+    } 
+    else {
       Serial.print(ERR_STR);
       Serial.print("2, ");
       Serial.println(type);
@@ -586,4 +631,175 @@ void resetEEPROM() {
   EEPROM.update(NAMES_ARE_SET_ADDR, 0);
   Serial.print(RESET_STR);
   Serial.print("3\n");
+}
+
+// --- Display Callbacks ---
+
+void setupDisplayCallbacks() {
+  // Attach the actions to the buttons and the checkboxes
+  b0.attachPop(dispenseBtnTapped);
+  b1.attachPop(jar1PlusTapped);
+  b2.attachPop(jar1MinusTapped);
+  b3.attachPop(jar2PlusTapped);
+  b4.attachPop(jar2MinusTapped);
+  b5.attachPop(jar3PlusTapped);
+  b6.attachPop(jar3MinusTapped);
+  b7.attachPop(jar4PlusTapped);
+  b8.attachPop(jar4MinusTapped);
+  c0.attachPop(jar1TbsTapped);
+  c1.attachPop(jar1TpsTapped);
+  c2.attachPop(jar2TbsTapped);
+  c3.attachPop(jar2TpsTapped);
+  c4.attachPop(jar3TbsTapped);
+  c5.attachPop(jar3TpsTapped);
+  c6.attachPop(jar4TbsTapped);
+  c7.attachPop(jar4TpsTapped);
+}
+
+// Dispense Button
+
+void dispenseBtnTapped(void *ptr) {
+  if (deviceState == 0) {
+    deviceState = 1;
+    for (byte i = 0; i < NUM_JARS; i++) {
+      smalls[i] = displaySmalls[i];
+      bigs[i] = displayBigs[i];
+    }
+  }
+  Serial.println("D-D");
+}
+
+// Plus, Minus Buttons
+
+void jar1PlusTapped(void *ptr) {
+  jarQuantityChanged(0, true);
+  Serial.println("D-1+");
+}
+
+void jar1MinusTapped(void *ptr) {
+  jarQuantityChanged(0, false);
+  Serial.println("D-1-");
+}
+
+void jar2PlusTapped(void *ptr) {
+  jarQuantityChanged(1, true);
+  Serial.println("D-2+");
+}
+
+void jar2MinusTapped(void *ptr) {
+  jarQuantityChanged(1, false);
+  Serial.println("D-2-");
+}
+
+void jar3PlusTapped(void *ptr) {
+  jarQuantityChanged(2, true);
+  Serial.println("D-3+");
+}
+
+void jar3MinusTapped(void *ptr) {
+  jarQuantityChanged(2, false);
+  Serial.println("D-3-");
+}
+
+void jar4PlusTapped(void *ptr) {
+  jarQuantityChanged(3, true);
+  Serial.println("D-4+");
+}
+
+void jar4MinusTapped(void *ptr) {
+  jarQuantityChanged(3, false);
+  Serial.println("D-4-");
+}
+
+void jarQuantityChanged(byte jar, boolean increment) {
+  byte quantity = 0;
+  boolean update = false;
+  float dQuantity = 0;
+
+  if (displayVolumes[jar] == 0) {
+    quantity = displayBigs[jar];
+    if (increment && quantity < MAX_BIGS) {
+      quantity++;
+      update = true;
+    } else if (!increment && quantity > 0) {
+      quantity--;
+      update = true;
+    }
+    dQuantity = TBS_STEP*quantity;
+  } else {
+    quantity = displaySmalls[jar];
+    if (increment && quantity < MAX_SMALLS) {
+      quantity++;
+      update = true;
+    } else if (!increment && quantity > 0) {
+      quantity--;
+      update = true;
+    }
+    dQuantity = TSP_STEP*quantity;
+  }
+
+  if (update == true) {
+    updateQuantityOnDisplay(jar, dQuantity);
+  }
+}
+
+// Volume Checkboxes
+
+void jar1TbsTapped(void *ptr) {
+  displayVolumes[0] = 0;
+  Serial.println("D-1Tbs");
+}
+
+void jar1TpsTapped(void *ptr) {
+  displayVolumes[0] = 1;
+  Serial.println("D-1Tps");
+}
+
+void jar2TbsTapped(void *ptr) {
+  displayVolumes[1] = 0;
+  Serial.println("D-2Tbs");
+}
+
+void jar2TpsTapped(void *ptr) {
+  displayVolumes[1] = 1;
+  Serial.println("D-2Tps");
+}
+
+void jar3TbsTapped(void *ptr) {
+  displayVolumes[2] = 0;
+  Serial.println("D-3Tbs");
+}
+
+void jar3TpsTapped(void *ptr) {
+  displayVolumes[2] = 1;
+  Serial.println("D-3Tps");
+}
+
+void jar4TbsTapped(void *ptr) {
+  displayVolumes[3] = 0;
+  Serial.println("D-4Tbs");
+}
+
+void jar4TpsTapped(void *ptr) {
+  displayVolumes[3] = 1;
+  Serial.println("D-4Tps");
+}
+
+void jarVolumeChanged(byte jar, boolean tbs) {
+  byte quantity;
+  float dQuantity;
+  if (displayVolumes[jar] == 0) {
+    // Converting from tsp to tbs
+    quantity = (displaySmalls[jar])*3;
+    displaySmalls[jar] = 0;
+    displayBigs[jar] = quantity;
+    dQuantity = quantity*TBS_STEP;
+  } else {
+    // Converting from tbs to tps
+    quantity = (displayBigs[jar])/3;
+    displaySmalls[jar] = quantity;
+    displayBigs[jar] = 0;
+    dQuantity = quantity*TSP_STEP;
+  }
+  updateQuantityOnDisplay(jar, dQuantity);
 }
