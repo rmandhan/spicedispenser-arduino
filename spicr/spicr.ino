@@ -9,6 +9,8 @@
 // Flags (Comment to disable functionality)
 // Required because when LEDs are not connected, the code freezes up
 #define LEDS_ENABLE
+#define MAIN_BOARD
+#define DISPLAY_ENABLE
 
 // Define Servo constants
 #define MIN_PULSE_WIDTH       650
@@ -18,7 +20,7 @@
 #define SERVO_SMALL_ANGLE     0
 #define SERVO_CENTER_ANGLE    85
 #define SERVO_BIG_ANGLE       170
-#define JAR_PIN_OFFSET        10    // (0 indexed)
+#define JAR_PIN_OFFSET        00    // (0 indexed)
 
 // JSON data type values
 #define TYPE_LEDS "leds"
@@ -68,16 +70,25 @@
 #define ERR_STR "ERROR "
 #define RESET_STR "RESET "
 
+// Bluetooth
+#ifdef MAIN_BOARD
+#define displaySerial Serial1
+#define bluetoothSerial Serial2
+#else 
+SoftwareSerial displaySerial(8, 9);       // Define RX and TX ports instead of using default 0, 1 ports
+SoftwareSerial bluetoothSerial(10, 11);
+#endif
+
 // Servo Microcontroller
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();  // Define PWM controller
 
-// Bluetooth
-SoftwareSerial displaySerial(8, 9);       // Define RX and TX ports instead of using default 0, 1 ports
-SoftwareSerial bluetoothSerial(10, 11);
-
 // LED Strips
 #ifdef LEDS_ENABLE
-Adafruit_NeoPixel lightsArray[NUM_JARS];
+// Adafruit_NeoPixel lightsArray[NUM_JARS];
+Adafruit_NeoPixel strip1 = Adafruit_NeoPixel(LEDS_PER_JAR, LED_PIN_OFFSET, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip2 = Adafruit_NeoPixel(LEDS_PER_JAR, LED_PIN_OFFSET + 1, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip3 = Adafruit_NeoPixel(LEDS_PER_JAR, LED_PIN_OFFSET + 2, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip4 = Adafruit_NeoPixel(LEDS_PER_JAR, LED_PIN_OFFSET + 3, NEO_GRB + NEO_KHZ800);
 #endif
 
 // Serial data
@@ -152,7 +163,8 @@ void setup() {
     setDefaultSpiceNames();
   }
   // Reset quantities to 0 on display
-  resetSpiceQuantities();
+  resetQuantitiesOnDisplay();
+  resetVolumesOnDisplay();
   // Reset Servos
   resetServos();
   // All Ready
@@ -180,9 +192,11 @@ void loop() {
   }
 
   // Read input from display
+  #ifdef DISPLAY_ENABLE
   nexLoop(nex_listen_list);
+  #endif
 
-  // Read data from bluetooth 
+  // Read serial input (from debugger)
   if (Serial.available()) {
     char x = Serial.read();
     bluetoothSerial.print(x);
@@ -206,9 +220,9 @@ void loop() {
     if (!root.success()) {
       Serial.print(ERR_STR);
       Serial.println("1");
-      // Serial.print("Free RAM: ");
-      // Serial.print(freeRam());
-      // Serial.println(" Bytes");
+      Serial.print("Free RAM: ");
+      Serial.print(freeRam());
+      Serial.println(" Bytes");
       return;
     }
     
@@ -232,7 +246,7 @@ void loop() {
       Serial.print(blue);
       Serial.print(", ");
       Serial.println(white);
-      configureLights(jar-1, red, green, blue, white);
+      configureLights(jar, red, green, blue, white);
       lightsWereSet();
     } 
     else if (type == TYPE_NAME) {
@@ -243,6 +257,7 @@ void loop() {
       Serial.print(": ");
       Serial.println(spiceName);
       configureSpiceName(jar, spiceName); 
+      namesWereSet();
     } 
     else if (type == TYPE_DISPENSE) {
       JsonArray& smallsData = root[SMALL_KEY];
@@ -282,7 +297,7 @@ void loop() {
         Serial.print(blue);
         Serial.print(", ");
         Serial.println(white);
-       configureLights(i, red, green, blue, white);
+        configureLights(i, red, green, blue, white);
       }
       lightsWereSet();
     } 
@@ -359,24 +374,28 @@ void namesWereSet() {
 
 void initializeLights() {
   #ifdef LEDS_ENABLE
-  for (byte i = 0; i < NUM_JARS; i++) {
-    byte pinNum = i + LED_PIN_OFFSET;
-    lightsArray[i] = Adafruit_NeoPixel(LEDS_PER_JAR, pinNum, NEO_GRB + NEO_KHZ800);
-    lightsArray[i].begin();
-    lightsArray[i].show();
-  }
+  // for (byte i = 0; i < NUM_JARS; i++) {
+  //   byte pinNum = i + LED_PIN_OFFSET;
+  //   lightsArray[i] = Adafruit_NeoPixel(LEDS_PER_JAR, pinNum, NEO_GRB + NEO_KHZ800);
+  //   lightsArray[i].begin();
+  //   lightsArray[i].show();
+  // }
+  strip1.begin();
+  strip1.show();
+  strip2.begin();
+  strip2.show();
+  strip3.begin();
+  strip3.show();
+  strip4.begin();
+  strip4.show();
   #endif
 }
 
 void setDefaultLighting() {
   // Set all lights to white by default - works will with default EEPROM values 
-  // for (byte i = 0; i < NUM_JARS; i++) {
-  //   setLights(i, 50, 50, 50, 50);
-  // } 
-  setLights(0, 255, 0, 0, 0);
-  setLights(1, 0, 255, 0, 0);
-  setLights(2, 0, 0, 255, 0);
-  setLights(3, 255, 100, 0, 0);
+  for (byte i = 0; i < NUM_JARS; i++) {
+    setLights(i, 50, 50, 50, 50);
+  } 
 }
 
 void configureLights(byte jar, byte red, byte green, byte blue, byte white) {
@@ -405,8 +424,6 @@ void configureLightsOnBoot() {
     Serial.print(green);
     Serial.print(", ");
     Serial.print(blue);
-    Serial.print(", ");
-    Serial.println(white);
     setLights(i, red, green, blue, white);
   }
 }
@@ -452,7 +469,7 @@ void configureSpiceNamesOnBoot() {
   }
 }
 
-void resetSpiceQuantities() {
+void resetQuantitiesOnDisplay() {
   for (byte i = 0; i < NUM_JARS; i++) {
     updateQuantityOnDisplay(i, 0);
   }
@@ -517,10 +534,31 @@ void dispenseSpiceForJar(byte jar) {
 
 void setLights(byte jar, byte red, byte green, byte blue, byte white) {
   #ifdef LEDS_ENABLE
-  // Serial.print("Setting lights for jar ");
-  for (byte i = 0; i < LEDS_PER_JAR; i++) {
-    lightsArray[jar].setPixelColor(i, red, green, blue);
-    lightsArray[jar].show();
+  // for (byte i = 0; i < LEDS_PER_JAR; i++) {
+  //   lightsArray[jar].setPixelColor(i, red, green, blue);
+  //   // lightsArray[jar].setPixelColor(i, lightsArray[jar].Color(red, green, blue));
+  // }
+  // lightsArray[jar].show();
+  if (jar == 0) {
+    for (byte i = 0; i < LEDS_PER_JAR; i++) {
+      strip1.setPixelColor(i, red, green, blue);
+    }
+    strip1.show();
+  } else if (jar == 1) {
+    for (byte i = 0; i < LEDS_PER_JAR; i++) {
+      strip2.setPixelColor(i, red, green, blue);
+    }
+    strip2.show();
+  } else if (jar == 2) {
+    for (byte i = 0; i < LEDS_PER_JAR; i++) {
+      strip3.setPixelColor(i, red, green, blue);
+    }
+    strip3.show();
+  } else {
+    for (byte i = 0; i < LEDS_PER_JAR; i++) {
+      strip4.setPixelColor(i, red, green, blue);
+    }
+    strip4.show();
   }
   #endif
 }
@@ -550,7 +588,6 @@ void updateQuantityOnDisplay(byte jar, float quantity) {
   // This needs to be hardcoded because of the nature of the display
   // Display has 4 jars with IDs t2, t5, t15, t25
   char *id;
-  char qty[6];
   if (jar == 0) {
     id = "t2";
   } else if (jar == 1) {
@@ -566,6 +603,45 @@ void updateQuantityOnDisplay(byte jar, float quantity) {
   displaySerial.print(quantity, 2);
   displaySerial.print("\"");
   didWriteToDisplay();
+  Serial.print(id);
+  Serial.print(": ");
+  Serial.println(quantity, 2);
+}
+
+void resetVolumesOnDisplay() {
+  // Display has 8 checkboxes labeled c0-c7
+  displaySerial.print("c0");
+  displaySerial.print(".val=");
+  displaySerial.print(1);
+  didWriteToDisplay();
+  displaySerial.print("c1");
+  displaySerial.print(".val=");
+  displaySerial.print(0);
+  didWriteToDisplay();
+  displaySerial.print("c2");
+  displaySerial.print(".val=");
+  displaySerial.print(1);
+  didWriteToDisplay();
+  displaySerial.print("c3");
+  displaySerial.print(".val=");
+  displaySerial.print(0);
+  didWriteToDisplay();
+  displaySerial.print("c4");
+  displaySerial.print(".val=");
+  displaySerial.print(1);
+  didWriteToDisplay();
+  displaySerial.print("c5");
+  displaySerial.print(".val=");
+  displaySerial.print(0);
+  didWriteToDisplay();
+  displaySerial.print("c6");
+  displaySerial.print(".val=");
+  displaySerial.print(1);
+  didWriteToDisplay();
+  displaySerial.print("c7");
+  displaySerial.print(".val=");
+  displaySerial.print(0);
+  didWriteToDisplay();
 }
 
 void updateStateOnDisplay() {
@@ -577,9 +653,10 @@ void updateStateOnDisplay() {
   }
   displaySerial.print("t12.txt=");
   displaySerial.print("\"");
-  displaySerial.print("Dispenser is Ready");
+  displaySerial.print(msg);
   displaySerial.print("\"");
   didWriteToDisplay();
+  // Serial.println(msg);
 }
 
 void didWriteToDisplay() {
@@ -606,6 +683,10 @@ int freeRam() {
 boolean isJarDisonncted() {
   // TODO: Read analog values and determine correct state
   return false;
+}
+
+int servoSense(byte jar) {
+  return analogRead(jar);
 }
 
 void resetEverything() {
@@ -671,6 +752,7 @@ void setupDisplayCallbacks() {
 void dispenseBtnTapped(void *ptr) {
   if (deviceState == 0) {
     deviceState = 1;
+    updateStateOnDisplay();
     for (byte i = 0; i < NUM_JARS; i++) {
       smalls[i] = displaySmalls[i];
       bigs[i] = displayBigs[i];
@@ -735,6 +817,7 @@ void jarQuantityChanged(byte jar, boolean increment) {
       quantity--;
       update = true;
     }
+    displayBigs[jar] = quantity;
     dQuantity = TBS_STEP*quantity;
   } else {
     quantity = displaySmalls[jar];
@@ -745,6 +828,7 @@ void jarQuantityChanged(byte jar, boolean increment) {
       quantity--;
       update = true;
     }
+    displaySmalls[jar] = quantity;
     dQuantity = TSP_STEP*quantity;
   }
 
@@ -757,59 +841,65 @@ void jarQuantityChanged(byte jar, boolean increment) {
 
 void jar1TbsTapped(void *ptr) {
   displayVolumes[0] = 0;
+  jarVolumeChanged(0);
   Serial.println("D-1Tbs");
 }
 
 void jar1TpsTapped(void *ptr) {
   displayVolumes[0] = 1;
+  jarVolumeChanged(0);
   Serial.println("D-1Tps");
 }
 
 void jar2TbsTapped(void *ptr) {
   displayVolumes[1] = 0;
+  jarVolumeChanged(1);
   Serial.println("D-2Tbs");
 }
 
 void jar2TpsTapped(void *ptr) {
   displayVolumes[1] = 1;
+  jarVolumeChanged(1);
   Serial.println("D-2Tps");
 }
 
 void jar3TbsTapped(void *ptr) {
   displayVolumes[2] = 0;
+  jarVolumeChanged(2);
   Serial.println("D-3Tbs");
 }
 
 void jar3TpsTapped(void *ptr) {
   displayVolumes[2] = 1;
+  jarVolumeChanged(2);
   Serial.println("D-3Tps");
 }
 
 void jar4TbsTapped(void *ptr) {
   displayVolumes[3] = 0;
+  jarVolumeChanged(3);
   Serial.println("D-4Tbs");
 }
 
 void jar4TpsTapped(void *ptr) {
   displayVolumes[3] = 1;
+  jarVolumeChanged(3);
   Serial.println("D-4Tps");
 }
 
-void jarVolumeChanged(byte jar, boolean tbs) {
-  byte quantity;
-  float dQuantity;
+void jarVolumeChanged(byte jar) {
+  // TODO: Figure out the math - not convering properly
+  float quantity;
   if (displayVolumes[jar] == 0) {
     // Converting from tsp to tbs
-    quantity = (displaySmalls[jar])*3;
+    quantity = (displaySmalls[jar])*TSP_STEP/3.0;
     displaySmalls[jar] = 0;
-    displayBigs[jar] = quantity;
-    dQuantity = quantity*TBS_STEP;
+    displayBigs[jar] = quantity/TBS_STEP;
   } else {
     // Converting from tbs to tps
-    quantity = (displayBigs[jar])/3;
-    displaySmalls[jar] = quantity;
+    quantity = (displayBigs[jar])*TBS_STEP*3.0;
+    displaySmalls[jar] = quantity/TSP_STEP;
     displayBigs[jar] = 0;
-    dQuantity = quantity*TSP_STEP;
   }
-  updateQuantityOnDisplay(jar, dQuantity);
+  updateQuantityOnDisplay(jar, quantity);
 }
