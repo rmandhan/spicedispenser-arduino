@@ -1,7 +1,7 @@
 {
     "board": "arduino:avr:mega",
     "sketch": "spicr/spicr.ino",
-    "port": "/dev/cu.usbserial-A904RD83",
+    "port": "/dev/cu.usbmodem1441",
     "output": "../build",
     "configuration": "cpu=atmega2560"
 }

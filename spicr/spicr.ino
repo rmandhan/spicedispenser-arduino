@@ -888,16 +888,17 @@ void jar4TpsTapped(void *ptr) {
 }
 
 void jarVolumeChanged(byte jar) {
-  // TODO: Figure out the math - not convering properly
   float quantity;
   if (displayVolumes[jar] == 0) {
     // Converting from tsp to tbs
     quantity = (displaySmalls[jar])*TSP_STEP/3.0;
+    quantity = quantity - (quantity%TBS_STEP);
     displaySmalls[jar] = 0;
     displayBigs[jar] = quantity/TBS_STEP;
   } else {
     // Converting from tbs to tps
     quantity = (displayBigs[jar])*TBS_STEP*3.0;
+    quantity = quantity - (quantity%TSP_STEP);
     displaySmalls[jar] = quantity/TSP_STEP;
     displayBigs[jar] = 0;
   }
